@@ -1,0 +1,54 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Created with Cambalache 1.0.3 -->
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <object class="GtkApplicationWindow">
+    <child>
+      <object class="GtkListBox">
+        <child>
+          <object class="GtkListBoxRow">
+            <property name="height-request">30</property>
+            <child>
+              <object class="GtkBox">
+                <child>
+                  <object class="GtkText">
+                    <property name="max-length">127</property>
+                    <property name="text">This is column 1</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkText">
+                    <property name="max-length">127</property>
+                    <property name="text">This is column 2</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkListBoxRow">
+            <property name="height-request">30</property>
+            <child>
+              <object class="GtkText">
+                <property name="max-length">127</property>
+                <property name="text">This is text 2</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkListBoxRow">
+            <property name="height-request">30</property>
+            <child>
+              <object class="GtkText">
+                <property name="max-length">127</property>
+                <property name="text">This is text 3</property>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>

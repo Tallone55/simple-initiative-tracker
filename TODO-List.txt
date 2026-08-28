@@ -1,0 +1,9 @@
+1: Export provides no explicit option for "Export As"
+2: Column labels and database content display should have resizeable widths using a Gtk widget. They should remain aligned
+3: Hitpoint total doesn't include a maximum
+4: Hitpoint edit function should include addition and subtraction functions (type formula into box? Buttons?)
+5: Move import/export buttons to top right to provide visual separation
+6: Add Creature field should generate a random number 1-20 if left empty
+7: color "Add Creature" and "Next Turn" buttons
+8: Add default trash-can icon to "Remove" buttons and remove explicit text (keep tooltip?)
+9: Add an option to instantiate multiple creatures of the same type with one invocation of "Add Creature"

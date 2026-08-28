@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='UTF-8' standalone='no'?>
+<!DOCTYPE cambalache-project SYSTEM "cambalache-project.dtd">
+<!-- Created with Cambalache 1.0.3 -->
+<cambalache-project version="1.0.0" target_tk="gtk-4.0">
+  <ui filename="simple-initiative-tracker.ui" sha256="ff72d592064655d11b070ff8f85924c197f9aa966f21acd904d8962c7e9dacc9"/>
+  <ui filename="file-picker.ui" sha256="866ecb8e2654f4ee4ef95661839231bb4627f78b092b11f944837dfe08fbbb2e"/>
+</cambalache-project>
