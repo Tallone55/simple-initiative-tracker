@@ -2,22 +2,23 @@ import csv
 
 from gi.repository import Gio, Gtk, GLib
 
-from constants import FILE_PICKER_UI_PATH, CSV_HEADERS
+from constants import FILE_PICKER_UI_PATH
 from models import InitiativeDatabase
-from dialogs import open_edit_dialog, open_add_creature_dialog
-from row_factory import CreatureRowFactory
+from dialogs import open_edit_dialog, open_edit_hitpoints_dialog, open_add_creature_dialog
+from column_factory import CreatureColumnFactory
 
 
 class AppWindow(Gtk.ApplicationWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.set_default_size(720, 480)
+        self.set_default_size(760, 480)
 
         self.initiative_database = InitiativeDatabase()
         self.last_file_path = None
 
-        self.row_factory = CreatureRowFactory(
+        self.creature_columns = CreatureColumnFactory(
             on_edit_requested=self._handle_edit_requested,
+            on_hitpoints_edit_requested=self._handle_hitpoints_edit_requested,
             on_remove_requested=self._handle_remove_requested,
             is_current_fn=lambda c: self.initiative_database.current_creature is c,
         )
@@ -32,14 +33,14 @@ class AppWindow(Gtk.ApplicationWindow):
         self.set_child(root)
 
         root.append(self._build_toolbar())
-        root.append(self._build_column_header())
 
         selection_model = Gtk.NoSelection(model=self.initiative_database.sorted_model)
-        self.list_view = Gtk.ListView(
-            model=selection_model, factory=self.row_factory.factory, vexpand=True
-        )
+        self.column_view = Gtk.ColumnView(model=selection_model, vexpand=True)
+        for column in self.creature_columns.columns:
+            self.column_view.append_column(column)
+
         scrolled = Gtk.ScrolledWindow(vexpand=True)
-        scrolled.set_child(self.list_view)
+        scrolled.set_child(self.column_view)
         root.append(scrolled)
 
         self.status_label = Gtk.Label(label="", xalign=0)
@@ -63,33 +64,40 @@ class AppWindow(Gtk.ApplicationWindow):
         return file_dialog
 
     def _build_toolbar(self):
-        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        # Left group: creature/turn management. Right group: file I/O.
+        # A CenterBox keeps them pinned to opposite ends regardless of
+        # window width, giving a clean visual split between the two
+        # kinds of action.
+        left_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
         add_button = Gtk.Button(label="Add Creature")
+        add_button.add_css_class("action-add")
         add_button.connect("clicked", self.on_add_creature_clicked)
-        toolbar.append(add_button)
+        left_group.append(add_button)
 
         next_turn_button = Gtk.Button(label="Next Turn")
+        next_turn_button.add_css_class("action-next-turn")
         next_turn_button.connect("clicked", self.on_next_turn_clicked)
-        toolbar.append(next_turn_button)
+        left_group.append(next_turn_button)
+
+        right_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
         import_button = Gtk.Button(label="Import")
         import_button.connect("clicked", self.on_import_clicked)
-        toolbar.append(import_button)
+        right_group.append(import_button)
 
         export_button = Gtk.Button(label="Export")
         export_button.connect("clicked", self.on_export_clicked)
-        toolbar.append(export_button)
+        right_group.append(export_button)
 
+        export_as_button = Gtk.Button(label="Export As\u2026")
+        export_as_button.connect("clicked", self.on_export_as_clicked)
+        right_group.append(export_as_button)
+
+        toolbar = Gtk.CenterBox(orientation=Gtk.Orientation.HORIZONTAL)
+        toolbar.set_start_widget(left_group)
+        toolbar.set_end_widget(right_group)
         return toolbar
-
-    def _build_column_header(self):
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        for text in (*CSV_HEADERS, ""):
-            lbl = Gtk.Label(label=text, hexpand=True, xalign=0)
-            lbl.add_css_class("heading")
-            header.append(lbl)
-        return header
 
     # -- shared post-mutation refresh -------------------------------------
 
@@ -99,17 +107,20 @@ class AppWindow(Gtk.ApplicationWindow):
         highlight always stay in sync with the database."""
         if resort:
             self.initiative_database.resort()
-        self.row_factory.refresh_highlights()
+        self.creature_columns.refresh_highlights()
 
     def show_status(self, message):
         self.status_label.set_text(message)
 
-    # -- row factory callbacks ------------------------------------------------
+    # -- column factory callbacks ------------------------------------------------
 
     def _handle_edit_requested(self, creature_obj, field_name, display_name):
         open_edit_dialog(
             self, creature_obj, field_name, display_name, self.after_database_mutation
         )
+
+    def _handle_hitpoints_edit_requested(self, creature_obj):
+        open_edit_hitpoints_dialog(self, creature_obj, self.after_database_mutation)
 
     def _handle_remove_requested(self, creature_obj):
         self.initiative_database.remove_creature(creature_obj)
@@ -122,10 +133,11 @@ class AppWindow(Gtk.ApplicationWindow):
         self.after_database_mutation(resort=False)
 
     def on_add_creature_clicked(self, button):
-        open_add_creature_dialog(self, self._handle_creature_added)
+        open_add_creature_dialog(self, self._handle_creatures_added)
 
-    def _handle_creature_added(self, creature):
-        self.initiative_database.add_creature(creature)
+    def _handle_creatures_added(self, creatures):
+        for creature in creatures:
+            self.initiative_database.add_creature(creature)
         self.after_database_mutation(resort=True)
 
     # -- import / export ------------------------------------------------
@@ -158,10 +170,19 @@ class AppWindow(Gtk.ApplicationWindow):
         self.show_status(f"Imported {path}")
 
     def on_export_clicked(self, button):
+        """Export to the last-used path; if none is known yet, this
+        behaves the same as Export As."""
         if self.last_file_path:
             self.export_to_path(self.last_file_path)
-            return
+        else:
+            self._open_export_dialog()
 
+    def on_export_as_clicked(self, button):
+        """Always prompts for a location, regardless of any remembered
+        last_file_path."""
+        self._open_export_dialog()
+
+    def _open_export_dialog(self):
         self.file_dialog.set_title("Export Initiative Tracker (CSV)")
         self.file_dialog.set_initial_name("initiative.csv")
         self.file_dialog.save(self, None, self.on_export_dialog_save)

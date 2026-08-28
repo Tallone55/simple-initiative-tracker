@@ -20,6 +20,7 @@ class Creature:
     single creature's stats; CreatureObject below just exposes it to GTK."""
     name: str
     hitpoints: int
+    max_hitpoints: int
     armor_class: int
     initiative_roll: int
 
@@ -27,9 +28,10 @@ class Creature:
 class CreatureObject(GObject.Object):
     """GObject wrapper around a Creature dataclass instance.
 
-    Gio.ListStore (and therefore Gtk.SortListModel / Gtk.ListView) can only
-    hold GObject-derived items, so this adapts the plain dataclass into
-    something GTK's model/view machinery can bind to and be notified about.
+    Gio.ListStore (and therefore Gtk.SortListModel / Gtk.ColumnView) can
+    only hold GObject-derived items, so this adapts the plain dataclass
+    into something GTK's model/view machinery can bind to and be notified
+    about.
     """
 
     __gtype_name__ = "CreatureObject"
@@ -53,6 +55,14 @@ class CreatureObject(GObject.Object):
     @hitpoints.setter
     def hitpoints(self, value):
         self._creature.hitpoints = value
+
+    @GObject.Property(type=int)
+    def max_hitpoints(self):
+        return self._creature.max_hitpoints
+
+    @max_hitpoints.setter
+    def max_hitpoints(self, value):
+        self._creature.max_hitpoints = value
 
     @GObject.Property(type=int)
     def armor_class(self):
@@ -147,6 +157,7 @@ class InitiativeDatabase:
                 writer.writerow([
                     obj.name,
                     obj.hitpoints,
+                    obj.max_hitpoints,
                     obj.armor_class,
                     obj.initiative_roll,
                 ])
@@ -159,13 +170,14 @@ class InitiativeDatabase:
 
         new_objects = []
         for row in data_rows:
-            if len(row) < 4:
+            if len(row) < 5:
                 continue
             creature = Creature(
                 name=row[0],
                 hitpoints=int(row[1]),
-                armor_class=int(row[2]),
-                initiative_roll=int(row[3]),
+                max_hitpoints=int(row[2]),
+                armor_class=int(row[3]),
+                initiative_roll=int(row[4]),
             )
             new_objects.append(CreatureObject(creature))
 

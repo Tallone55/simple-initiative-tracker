@@ -7,6 +7,12 @@ CSS = b"""
 .initiative-row {
     padding: 2px 0;
 }
+.action-add {
+    background-color: #a8e6a3;
+}
+.action-next-turn {
+    background-color: #a3c9e6;
+}
 """
 
 

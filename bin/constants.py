@@ -6,6 +6,7 @@ UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 # so these are converted once here rather than at every call site.
 FILE_PICKER_UI_PATH = str(UI_DIR / "file-picker.ui")
 EDIT_FIELD_UI_PATH = str(UI_DIR / "edit-field.ui")
+EDIT_HITPOINTS_UI_PATH = str(UI_DIR / "edit-hitpoints.ui")
 ADD_CREATURE_UI_PATH = str(UI_DIR / "add-creature.ui")
 
-CSV_HEADERS = ["Creature", "Hitpoints", "Armor Class", "Initiative Roll"]
+CSV_HEADERS = ["Creature", "Hitpoints", "Max Hitpoints", "Armor Class", "Initiative Roll"]
