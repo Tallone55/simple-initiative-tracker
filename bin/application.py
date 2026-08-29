@@ -23,6 +23,7 @@ class Application(Gtk.Application):
     # Run on process activation (executable invoked through any means)
     def do_activate(self):
         if not self.window:
+            # This line invokes the actual application.
             self.window = AppWindow(application=self, title="Simple Initiative Tracker")
         self.window.present()
 

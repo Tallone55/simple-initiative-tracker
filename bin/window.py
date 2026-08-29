@@ -20,7 +20,6 @@ class AppWindow(Gtk.ApplicationWindow):
             on_edit_requested=self._handle_edit_requested,
             on_hitpoints_edit_requested=self._handle_hitpoints_edit_requested,
             on_remove_requested=self._handle_remove_requested,
-            is_current_fn=lambda c: self.initiative_database.current_creature is c,
         )
 
         self.file_dialog = self._load_file_dialog()
@@ -28,14 +27,30 @@ class AppWindow(Gtk.ApplicationWindow):
         root = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             spacing=6,
-            margin_top=6, margin_bottom=6, margin_start=6, margin_end=6,
+            margin_top=4, margin_bottom=4, margin_start=4, margin_end=4,
         )
         self.set_child(root)
 
         root.append(self._build_toolbar())
+        self.update_round_label()
 
-        selection_model = Gtk.NoSelection(model=self.initiative_database.sorted_model)
-        self.column_view = Gtk.ColumnView(model=selection_model, vexpand=True)
+        # Native row selection gives us full-row highlighting for free,
+        # instead of the earlier per-cell CSS-class approach. Selection
+        # is normally driven by our own code (_sync_selection, called
+        # after any real state change) rather than raw clicks -- but a
+        # single click can still cause a transient native selection on
+        # its own (see column_factory.py), which just gets overwritten
+        # the next time something actually changes state.
+        #
+        # Turn activation is via the native "activate" signal (fires on
+        # double-click by default -- single_click_activate is False
+        # below to make that explicit rather than relying on the default).
+        self.selection_model = Gtk.SingleSelection(model=self.initiative_database.sorted_model)
+        self.selection_model.set_autoselect(False)
+        self.selection_model.set_can_unselect(True)
+        self.column_view = Gtk.ColumnView(model=self.selection_model, vexpand=True)
+        self.column_view.set_single_click_activate(False)
+        self.column_view.connect("activate", self._on_row_activated)
         for column in self.creature_columns.columns:
             self.column_view.append_column(column)
 
@@ -46,6 +61,8 @@ class AppWindow(Gtk.ApplicationWindow):
         self.status_label = Gtk.Label(label="", xalign=0)
         self.status_label.add_css_class("dim-label")
         root.append(self.status_label)
+
+        self._sync_selection()
 
     # -- construction helpers ------------------------------------------------
 
@@ -94,8 +111,12 @@ class AppWindow(Gtk.ApplicationWindow):
         export_as_button.connect("clicked", self.on_export_as_clicked)
         right_group.append(export_as_button)
 
+        self.round_label = Gtk.Label(label="Round 1")
+        self.round_label.add_css_class("round-counter")
+
         toolbar = Gtk.CenterBox(orientation=Gtk.Orientation.HORIZONTAL)
         toolbar.set_start_widget(left_group)
+        toolbar.set_center_widget(self.round_label)
         toolbar.set_end_widget(right_group)
         return toolbar
 
@@ -103,11 +124,32 @@ class AppWindow(Gtk.ApplicationWindow):
 
     def after_database_mutation(self, resort=False):
         """The single place every mutation (add/remove/edit/next-turn/
-        import) routes through afterwards, so sorting and the current-turn
-        highlight always stay in sync with the database."""
+        import) routes through afterwards, so sorting, the current-turn
+        selection, and the round display always stay in sync with the
+        database."""
         if resort:
             self.initiative_database.resort()
-        self.creature_columns.refresh_highlights()
+        self._sync_selection()
+        self.update_round_label()
+
+    def _sync_selection(self):
+        """Moves native row selection to match current_creature. This is
+        the only thing that changes selection -- not GTK's own
+        click-to-select behavior -- so selection always reflects whose
+        turn it actually is rather than wherever the user last clicked.
+        """
+        current = self.initiative_database.current_creature
+        if current is None:
+            self.selection_model.set_selected(Gtk.INVALID_LIST_POSITION)
+            return
+        n = self.initiative_database.sorted_model.get_n_items()
+        for i in range(n):
+            if self.initiative_database.sorted_model.get_item(i) is current:
+                self.selection_model.select_item(i, True)
+                return
+
+    def update_round_label(self):
+        self.round_label.set_label(f"Round {self.initiative_database.round_number}")
 
     def show_status(self, message):
         self.status_label.set_text(message)
@@ -125,6 +167,15 @@ class AppWindow(Gtk.ApplicationWindow):
     def _handle_remove_requested(self, creature_obj):
         self.initiative_database.remove_creature(creature_obj)
         self.after_database_mutation(resort=False)
+
+    def _on_row_activated(self, column_view, position):
+        """Native Gtk.ColumnView "activate" signal -- fires on
+        double-click (single_click_activate is False). Manually sets
+        whose turn it is, distinct from Next Turn advancing the order."""
+        item = self.selection_model.get_item(position)
+        if item is not None:
+            self.initiative_database.set_current_creature(item)
+            self.after_database_mutation(resort=False)
 
     # -- toolbar actions ------------------------------------------------
 

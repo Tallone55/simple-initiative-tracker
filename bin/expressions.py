@@ -50,6 +50,10 @@ _DICE_PATTERN = re.compile(r"(?<![\w.])(\d*)d(\d+)(?![\w.])", re.IGNORECASE)
 _MAX_DICE_COUNT = 10_000
 _MAX_DICE_SIDES = 100_000
 
+# GObject's `int` properties are backed by a 32-bit signed gint.
+_GINT_MIN = -(2**31)
+_GINT_MAX = 2**31 - 1
+
 
 class ExpressionError(ValueError):
     """Raised when a typed value isn't a valid integer or arithmetic
@@ -103,7 +107,19 @@ def evaluate_int_expression(text: str) -> int:
             )
         result = int(result)
 
-    return int(result)
+    result = int(result)
+
+    # CreatureObject's int properties are backed by GObject's 32-bit
+    # signed gint. Without this check, an out-of-range result doesn't
+    # fail here -- it fails later and much less clearly, as a raw
+    # TypeError deep inside PyGObject's property-setting machinery the
+    # first time the value is assigned to a CreatureObject property.
+    if not (_GINT_MIN <= result <= _GINT_MAX):
+        raise ExpressionError(
+            f"{result} is out of range ({_GINT_MIN} to {_GINT_MAX})."
+        )
+
+    return result
 
 
 def _eval_node(node):

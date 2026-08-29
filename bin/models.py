@@ -91,6 +91,7 @@ class InitiativeDatabase:
         self.sorter = Gtk.CustomSorter.new(self._compare)
         self.sorted_model = Gtk.SortListModel(model=self.store, sorter=self.sorter)
         self.current_creature = None  # CreatureObject reference, or None
+        self.round_number = 1
 
     @staticmethod
     def _compare(a, b, user_data=None):
@@ -116,11 +117,29 @@ class InitiativeDatabase:
         self.sorter.changed(Gtk.SorterChange.DIFFERENT)
 
     def add_creature(self, creature: Creature) -> CreatureObject:
+        # A new arrival's higher roll only gets to jump the queue if
+        # whoever currently has the turn was already at the very top of
+        # the order -- i.e. combat hasn't meaningfully started yet, or
+        # it's genuinely the top roller's turn right now. Mid-round,
+        # adding creatures shouldn't disrupt whoever's turn it already
+        # is, even if the new arrival rolled higher.
+        current_was_top = self.current_creature is not None and self._current_index() == 0
+
         obj = CreatureObject(creature)
         self.store.append(obj)
+
         if self.current_creature is None:
             self.current_creature = obj
+        elif current_was_top and obj.initiative_roll > self.current_creature.initiative_roll:
+            self.current_creature = obj
+
         return obj
+
+    def set_current_creature(self, creature_obj: CreatureObject):
+        """Manually override whose turn it is -- distinct from
+        next_turn(), which advances turn order rather than jumping to a
+        specific creature."""
+        self.current_creature = creature_obj
 
     def remove_creature(self, creature_obj: CreatureObject):
         found, position = self.store.find(creature_obj)
@@ -139,7 +158,12 @@ class InitiativeDatabase:
         if idx is None:
             self.current_creature = items[0]
         else:
-            self.current_creature = items[(idx + 1) % len(items)]
+            new_idx = (idx + 1) % len(items)
+            if new_idx == 0:
+                # Wrapped back to the top of the turn order -- a full
+                # round has elapsed.
+                self.round_number += 1
+            self.current_creature = items[new_idx]
 
     def export_csv(self, path):
         items = self._sorted_list()
@@ -152,7 +176,12 @@ class InitiativeDatabase:
 
         with open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(CSV_HEADERS)
+            # The round number is tacked onto the header row as a trailing
+            # cell, since that row is otherwise write-only from our own
+            # perspective -- import always skips row 0 entirely rather
+            # than reading its cell values, so there's no established
+            # column meaning there to collide with.
+            writer.writerow(CSV_HEADERS + [str(self.round_number)])
             for obj in ordered:
                 writer.writerow([
                     obj.name,
@@ -166,7 +195,8 @@ class InitiativeDatabase:
         with open(path, "r", newline="", encoding="utf-8") as f:
             rows = list(csv.reader(f))
 
-        data_rows = rows[1:]  # header is always ignored on import
+        header_row = rows[0] if rows else []
+        data_rows = rows[1:]
 
         new_objects = []
         for row in data_rows:
@@ -188,3 +218,14 @@ class InitiativeDatabase:
         # First row in the file is, by our export convention, whoever's
         # turn it currently is.
         self.current_creature = new_objects[0] if new_objects else None
+
+        # Round number, if present, is a trailing cell on the header row.
+        # Files exported before this feature existed won't have it --
+        # default back to round 1 rather than failing the import.
+        round_number = 1
+        if len(header_row) > len(CSV_HEADERS):
+            try:
+                round_number = int(header_row[len(CSV_HEADERS)])
+            except ValueError:
+                round_number = 1
+        self.round_number = round_number

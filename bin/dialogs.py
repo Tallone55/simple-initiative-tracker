@@ -132,13 +132,6 @@ def open_add_creature_dialog(parent, on_added):
         error_label.set_visible(True)
 
     def on_add(_button):
-        try:
-            hitpoints = evaluate_int_expression(hp_entry.get_text())
-            armor_class = evaluate_int_expression(ac_entry.get_text())
-        except ExpressionError:
-            show_error("Hitpoints and Armor Class must be whole numbers or expressions.")
-            return
-
         raw_init = init_entry.get_text().strip()
         if raw_init:
             try:
@@ -157,6 +150,18 @@ def open_add_creature_dialog(parent, on_added):
 
         creatures = []
         for i in range(count):
+            # Hitpoints and Armor Class are re-evaluated per creature
+            # rather than once outside the loop -- if either field uses
+            # dice notation, each creature in the batch should get its
+            # own independent roll, the same way Initiative Roll already
+            # does below.
+            try:
+                hitpoints = evaluate_int_expression(hp_entry.get_text())
+                armor_class = evaluate_int_expression(ac_entry.get_text())
+            except ExpressionError:
+                show_error("Hitpoints and Armor Class must be whole numbers or expressions.")
+                return
+
             # Only number duplicates when there's more than one -- a
             # single add keeps the name exactly as typed.
             display_name = f"{base_name} {i + 1}" if count > 1 else base_name
