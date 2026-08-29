@@ -1,3 +1,4 @@
-Creature,Hitpoints,Armor Class,Initiative Roll
-Foobar,7,4,1
-Xenophilius,7,4,77
+Creature,Hitpoints,Max Hitpoints,Armor Class,Initiative Roll,1
+foobar 1,16,16,16,16
+foobar 2,16,16,16,16
+foobar 3,16,16,16,16

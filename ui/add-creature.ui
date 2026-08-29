@@ -4,7 +4,7 @@
   <object class="GtkWindow" id="add_window">
     <property name="modal">true</property>
     <property name="resizable">false</property>
-    <property name="default-width">320</property>
+    <property name="default-width">340</property>
     <property name="title">Add Creature</property>
     <child>
       <object class="GtkBox" id="add_box">
@@ -16,12 +16,12 @@
         <property name="margin-end">12</property>
         <child>
           <object class="GtkEntry" id="name_entry">
-            <property name="placeholder-text">Creature</property>
+            <property name="placeholder-text">Creature name (blank = Unnamed)</property>
           </object>
         </child>
         <child>
           <object class="GtkEntry" id="hp_entry">
-            <property name="placeholder-text">Hitpoints</property>
+            <property name="placeholder-text">Hitpoints (starting/max)</property>
             <property name="input-purpose">number</property>
           </object>
         </child>
@@ -33,9 +33,34 @@
         </child>
         <child>
           <object class="GtkEntry" id="init_entry">
-            <property name="placeholder-text">Initiative Roll</property>
+            <property name="placeholder-text">Initiative Roll (blank = random 1-20)</property>
             <property name="input-purpose">number</property>
-            <property name="activates-default">true</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">6</property>
+            <child>
+              <object class="GtkLabel">
+                <property name="label">Number to add</property>
+                <property name="hexpand">true</property>
+                <property name="xalign">0</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkSpinButton" id="count_spin">
+                <property name="numeric">true</property>
+                <property name="adjustment">
+                  <object class="GtkAdjustment">
+                    <property name="lower">1</property>
+                    <property name="upper">50</property>
+                    <property name="step-increment">1</property>
+                    <property name="value">1</property>
+                  </object>
+                </property>
+              </object>
+            </child>
           </object>
         </child>
         <child>
