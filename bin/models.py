@@ -151,6 +151,12 @@ class InitiativeDatabase:
         specific creature."""
         self.current_creature = creature_obj
 
+    def clear(self):
+        """Resets to a fresh, empty initiative order -- used by "New"."""
+        self.store.remove_all()
+        self.current_creature = None
+        self.round_number = 1
+
     def remove_creature(self, creature_obj: CreatureObject):
         """Removes a creature. If it was the current turn, current
         becomes the new top of the turn order (or None if now empty)."""

@@ -98,6 +98,49 @@ class SessionManager:
             return
         self._import_from_path(cached_path)
 
+    # -- new ------------------------------------------------
+
+    def try_new(self):
+        """Entry point for the New action (menu item / Ctrl+N). Checks
+        for unsaved changes first, since starting fresh discards the
+        whole current list -- proceeds straight to clearing if there's
+        nothing to lose."""
+        self._after_export_callback = None
+        if self.dirty:
+            open_unsaved_changes_dialog(
+                self.window,
+                on_export=self._export_then_new,
+                on_discard=self._begin_new,
+                message=(
+                    "You have unexported changes. Starting a new "
+                    "initiative order will discard the current list. "
+                    "Export first?"
+                ),
+            )
+        else:
+            self._begin_new()
+
+    def _export_then_new(self):
+        """Chosen from the unsaved-changes dialog: export first, then
+        clear to a fresh session once the export succeeds."""
+        self._after_export_callback = self._begin_new
+        if self.last_file_path:
+            self._export_to_path(self.last_file_path)
+        else:
+            self._open_export_dialog()
+
+    def _begin_new(self):
+        self.initiative_database.clear()
+        self.undo_manager.clear()
+        # New means "no longer working with any particular file" --
+        # unlike import, which is still associated with the file it
+        # just loaded. A later Export should prompt for a location
+        # rather than silently overwriting whatever was open before.
+        self.last_file_path = None
+        self._set_dirty(False)
+        self.on_state_changed(resort=False)
+        self.window.show_status("Started a new initiative order.")
+
     # -- import ------------------------------------------------
 
     def try_import(self):

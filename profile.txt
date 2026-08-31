@@ -1,0 +1,104 @@
+======================================================================
+Top 40 by CUMULATIVE time, from process start through do_activate
+(includes gi import, typelib loading, and Gtk.Application's own
+do_startup -- not just AppWindow construction)
+======================================================================
+         126535 function calls (123307 primitive calls) in 0.550 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1297 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+   351/59    0.002    0.000    0.413    0.007 <frozen importlib._bootstrap>:1360(_find_and_load)
+    154/5    0.001    0.000    0.412    0.082 <frozen importlib._bootstrap>:1308(_find_and_load_unlocked)
+    144/5    0.001    0.000    0.411    0.082 <frozen importlib._bootstrap>:914(_load_unlocked)
+    364/8    0.001    0.000    0.410    0.051 <frozen importlib._bootstrap>:483(_call_with_frames_removed)
+   101/11    0.001    0.000    0.400    0.036 <frozen importlib._bootstrap_external>:753(exec_module)
+   111/11    0.010    0.000    0.395    0.036 {built-in method builtins.exec}
+   170/22    0.000    0.000    0.372    0.017 <frozen importlib._bootstrap>:1409(_handle_fromlist)
+     81/8    0.000    0.000    0.372    0.046 {built-in method builtins.__import__}
+  144/116    0.001    0.000    0.257    0.002 <frozen importlib._bootstrap>:809(module_from_spec)
+     18/1    0.000    0.000    0.243    0.243 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/importer.py:121(create_module)
+   222/69    0.000    0.000    0.242    0.004 /home/thomas/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/importlib/__init__.py:71(import_module)
+   222/69    0.000    0.000    0.242    0.004 <frozen importlib._bootstrap>:1394(_gcd_import)
+    18/14    0.001    0.000    0.239    0.017 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/overrides/__init__.py:94(load_overrides)
+        1    0.126    0.126    0.150    0.150 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/overrides/Gtk.py:1(<module>)
+        1    0.001    0.001    0.138    0.138 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/overrides/Gio.py:133(run)
+        1    0.000    0.000    0.134    0.134 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/__init__.py:1(<module>)
+      3/2    0.000    0.000    0.124    0.062 <frozen importlib._bootstrap_external>:1059(exec_module)
+      3/2    0.002    0.001    0.124    0.062 {built-in method _imp.exec_dynamic}
+        1    0.000    0.000    0.110    0.110 /home/thomas/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/asyncio/__init__.py:1(<module>)
+        1    0.000    0.000    0.100    0.100 /home/thomas/Documents/Python/initiative-tracker/bin/profile_startup.py:66(do_activate)
+        1    0.076    0.076    0.100    0.100 /home/thomas/Documents/Python/initiative-tracker/bin/application.py:38(do_activate)
+        1    0.000    0.000    0.096    0.096 /home/thomas/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/asyncio/base_events.py:1(<module>)
+  329/287    0.004    0.000    0.087    0.000 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/module.py:120(__getattr__)
+      101    0.001    0.000    0.054    0.001 <frozen importlib._bootstrap_external>:826(get_code)
+  358/354    0.009    0.000    0.043    0.000 {built-in method builtins.__build_class__}
+      101    0.017    0.000    0.040    0.000 <frozen importlib._bootstrap_external>:509(_compile_bytecode)
+      155    0.002    0.000    0.038    0.000 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/types.py:244(__init__)
+        1    0.032    0.032    0.034    0.034 /home/thomas/Documents/Python/initiative-tracker/bin/application.py:15(do_startup)
+        1    0.000    0.000    0.031    0.031 /home/thomas/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/concurrent/futures/__init__.py:1(<module>)
+4981/4403    0.005    0.000    0.030    0.000 {built-in method builtins.getattr}
+      151    0.006    0.000    0.030    0.000 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/types.py:50(_setup_methods)
+        1    0.000    0.000    0.030    0.030 /home/thomas/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/concurrent/futures/_base.py:1(<module>)
+        1    0.000    0.000    0.027    0.027 /home/thomas/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/logging/__init__.py:1(<module>)
+        1    0.001    0.001    0.027    0.027 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/overrides/Gio.py:1(<module>)
+        1    0.000    0.000    0.026    0.026 /home/thomas/Documents/Python/initiative-tracker/bin/application.py:1(<module>)
+  588/543    0.001    0.000    0.025    0.000 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/overrides/__init__.py:31(__getattr__)
+        1    0.003    0.003    0.024    0.024 /home/thomas/Documents/Python/initiative-tracker/bin/window.py:12(__init__)
+        1    0.000    0.000    0.023    0.023 /home/thomas/Documents/Python/initiative-tracker/bin/window.py:1(<module>)
+      101    0.023    0.000    0.023    0.000 {built-in method marshal.loads}
+      329    0.000    0.000    0.023    0.000 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/docstring.py:50(generate_doc_string)
+
+
+======================================================================
+Top 40 by TOTAL time (self time, excluding sub-calls)
+======================================================================
+         126535 function calls (123307 primitive calls) in 0.550 seconds
+
+   Ordered by: internal time
+   List reduced from 1297 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.126    0.126    0.150    0.150 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/overrides/Gtk.py:1(<module>)
+        1    0.076    0.076    0.100    0.100 /home/thomas/Documents/Python/initiative-tracker/bin/application.py:38(do_activate)
+        1    0.032    0.032    0.034    0.034 /home/thomas/Documents/Python/initiative-tracker/bin/application.py:15(do_startup)
+      101    0.023    0.000    0.023    0.000 {built-in method marshal.loads}
+      346    0.020    0.000    0.020    0.000 {method 'get_g_type' of 'gi.RegisteredTypeInfo' objects}
+      101    0.017    0.000    0.040    0.000 <frozen importlib._bootstrap_external>:509(_compile_bytecode)
+      329    0.010    0.000    0.021    0.000 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/docstring.py:109(_generate_callable_info_doc)
+   111/11    0.010    0.000    0.395    0.036 {built-in method builtins.exec}
+  945/811    0.009    0.000    0.019    0.000 {built-in method __new__ of type object at 0x15b3d40}
+  358/354    0.009    0.000    0.043    0.000 {built-in method builtins.__build_class__}
+        3    0.009    0.003    0.009    0.003 {built-in method _imp.create_dynamic}
+      151    0.006    0.000    0.030    0.000 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/types.py:50(_setup_methods)
+      496    0.005    0.000    0.005    0.000 {built-in method posix.stat}
+4981/4403    0.005    0.000    0.030    0.000 {built-in method builtins.getattr}
+     4179    0.005    0.000    0.006    0.000 {built-in method builtins.setattr}
+  329/287    0.004    0.000    0.087    0.000 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/module.py:120(__getattr__)
+      101    0.004    0.000    0.004    0.000 {method 'read' of '_io.BufferedReader' objects}
+     9786    0.003    0.000    0.003    0.000 {built-in method builtins.isinstance}
+      101    0.003    0.000    0.003    0.000 {built-in method _io.open_code}
+      155    0.003    0.000    0.004    0.000 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/types.py:288(mro)
+       17    0.003    0.000    0.007    0.000 /home/thomas/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/enum.py:1741(convert_class)
+      221    0.003    0.000    0.013    0.000 <frozen importlib._bootstrap_external>:1357(find_spec)
+      912    0.003    0.000    0.005    0.000 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/docstring.py:91(_get_pytype_hint)
+        1    0.003    0.003    0.024    0.024 /home/thomas/Documents/Python/initiative-tracker/bin/window.py:12(__init__)
+      334    0.002    0.000    0.008    0.000 <frozen importlib._bootstrap>:304(acquire)
+      172    0.002    0.000    0.020    0.000 <frozen importlib._bootstrap>:1243(_find_spec)
+        1    0.002    0.002    0.002    0.002 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/overrides/Gtk.py:569(__init__)
+     5957    0.002    0.000    0.002    0.000 {method 'append' of 'list' objects}
+    56/12    0.002    0.000    0.005    0.000 /home/thomas/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/re/_parser.py:512(_parse)
+     1195    0.002    0.000    0.004    0.000 <frozen importlib._bootstrap_external>:131(_path_join)
+      123    0.002    0.000    0.005    0.000 /home/thomas/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/enum.py:239(__set_name__)
+   351/59    0.002    0.000    0.413    0.007 <frozen importlib._bootstrap>:1360(_find_and_load)
+       21    0.002    0.000    0.004    0.000 {built-in method _imp.exec_builtin}
+        3    0.002    0.001    0.002    0.001 /home/thomas/Documents/Python/initiative-tracker/bin/column_factory.py:212(on_setup)
+        8    0.002    0.000    0.002    0.000 {method 'enumerate_versions' of 'gi.Repository' objects}
+       44    0.002    0.000    0.011    0.000 /home/thomas/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/enum.py:480(__new__)
+      725    0.002    0.000    0.002    0.000 /home/thomas/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/enum.py:812(__setattr__)
+      155    0.002    0.000    0.038    0.000 /home/thomas/Documents/Python/initiative-tracker/.venv/lib/python3.14/site-packages/gi/types.py:244(__init__)
+      3/2    0.002    0.001    0.124    0.062 {built-in method _imp.exec_dynamic}
+     1855    0.002    0.000    0.002    0.000 {method 'get_name' of 'gi.BaseInfo' objects}
+
+

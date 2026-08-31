@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Simple Initiative Tracker
+Comment=Track combat initiative order for tabletop games
+Exec=sit
+Icon=net.mystive.sit
+Categories=Game;Utility;
+Terminal=false
+StartupNotify=true

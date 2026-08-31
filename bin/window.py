@@ -1,20 +1,23 @@
-from gi.repository import Gtk
+from gi.repository import Gio, Gtk
 
 from models import InitiativeDatabase
 from creature_dialogs import open_edit_dialog, open_edit_hitpoints_dialog, open_add_creature_dialog
 from column_factory import CreatureColumnFactory
 from undo_manager import UndoManager
 from session_manager import SessionManager
+from app_menus import build_hamburger_menu
 import creature_commands
 
 
 class AppWindow(Gtk.ApplicationWindow):
     def __init__(self, *args, **kwargs):
-        """Builds the whole UI: toolbar, creature table, status line.
-        Creature mutation/undo logic lives in creature_commands.py;
-        file/session logic (import/export/close/cache) lives in
-        session_manager.py -- this class owns widget construction and
-        wires the two together via after_database_mutation."""
+        """Builds the whole UI: headerbar (with the primary action
+        buttons, round counter, and hamburger menu), creature table,
+        status line. Creature mutation/undo logic lives in
+        creature_commands.py; file/session logic (new/import/export/
+        close/cache) lives in session_manager.py -- this class owns
+        widget construction and wires the two together via
+        after_database_mutation."""
         super().__init__(*args, **kwargs)
         self.set_default_size(760, 480)
 
@@ -27,11 +30,16 @@ class AppWindow(Gtk.ApplicationWindow):
             on_state_changed=lambda resort: self.after_database_mutation(resort=resort, mark_dirty=False),
         )
 
+        self._register_actions()
+
         self.creature_columns = CreatureColumnFactory(
             on_edit_requested=self._handle_edit_requested,
             on_hitpoints_edit_requested=self._handle_hitpoints_edit_requested,
             on_remove_requested=self._handle_remove_requested,
         )
+
+        self.set_titlebar(self._build_headerbar())
+        self.update_round_label()
 
         root = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -39,9 +47,6 @@ class AppWindow(Gtk.ApplicationWindow):
             margin_top=6, margin_bottom=6, margin_start=6, margin_end=6,
         )
         self.set_child(root)
-
-        root.append(self._build_toolbar())
-        self.update_round_label()
 
         # Native row selection gives us full-row highlighting for the
         # current turn. Selection is normally driven by our own code
@@ -87,53 +92,73 @@ class AppWindow(Gtk.ApplicationWindow):
 
     # -- construction helpers ------------------------------------------------
 
-    def _build_toolbar(self):
-        # Left group: creature/turn management. Right group: file I/O.
-        # A CenterBox keeps them pinned to opposite ends regardless of
-        # window width, giving a clean visual split between the two
-        # kinds of action.
-        left_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    def _register_actions(self):
+        """Registers the win.* actions the headerbar hamburger menu,
+        the traditional File menu (app_menus.py), and keybinds.py's
+        Ctrl+N all reference by name."""
+        new_action = Gio.SimpleAction(name="new")
+        new_action.connect("activate", self.on_new)
+        self.add_action(new_action)
+
+        import_action = Gio.SimpleAction(name="import")
+        import_action.connect("activate", self.on_import)
+        self.add_action(import_action)
+
+        export_action = Gio.SimpleAction(name="export")
+        export_action.connect("activate", self.on_export)
+        self.add_action(export_action)
+
+        export_as_action = Gio.SimpleAction(name="export-as")
+        export_as_action.connect("activate", self.on_export_as)
+        self.add_action(export_as_action)
+
+    def _build_headerbar(self):
+        """GNOME-style headerbar: primary creature/turn actions at the
+        start (left), the round counter centered in the title area, and
+        a hamburger menu at the end (right) for New/Import/Export/
+        Export As -- see app_menus.py. The traditional File menu bar
+        (application.py's set_menubar) carries the same four actions
+        for platforms where this headerbar convention isn't native.
+        """
+        headerbar = Gtk.HeaderBar()
 
         add_button = Gtk.Button(label="Add Creature")
         add_button.add_css_class("action-add")
+        # Gtk.HeaderBar conventionally renders packed buttons "flat"
+        # (no visible fill until hover) by default -- this alone wasn't
+        # enough to get the fill to render (styling.py's selectors
+        # needed to be scoped more specifically too), but it's still
+        # correct to have: it stops the button from requesting "flat"
+        # behavior on its own, independent of whatever CSS wins.
+        add_button.set_has_frame(True)
         add_button.connect("clicked", self.on_add_creature_clicked)
-        left_group.append(add_button)
+        headerbar.pack_start(add_button)
 
         next_turn_button = Gtk.Button(label="Next Turn")
         next_turn_button.add_css_class("action-next-turn")
+        next_turn_button.set_has_frame(True)
         next_turn_button.connect("clicked", self.on_next_turn_clicked)
-        left_group.append(next_turn_button)
-
-        right_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-
-        import_button = Gtk.Button(label="Import")
-        import_button.connect("clicked", self.on_import_clicked)
-        right_group.append(import_button)
-
-        export_button = Gtk.Button(label="Export")
-        export_button.connect("clicked", self.on_export_clicked)
-        right_group.append(export_button)
-
-        export_as_button = Gtk.Button(label="Export As\u2026")
-        export_as_button.connect("clicked", self.on_export_as_clicked)
-        right_group.append(export_as_button)
+        headerbar.pack_start(next_turn_button)
 
         self.round_label = Gtk.Label(label="Round 1")
         self.round_label.add_css_class("round-counter")
+        headerbar.set_title_widget(self.round_label)
 
-        toolbar = Gtk.CenterBox(orientation=Gtk.Orientation.HORIZONTAL)
-        toolbar.set_start_widget(left_group)
-        toolbar.set_center_widget(self.round_label)
-        toolbar.set_end_widget(right_group)
-        return toolbar
+        menu_button = Gtk.MenuButton()
+        menu_button.set_icon_name("open-menu-symbolic")
+        menu_button.set_menu_model(build_hamburger_menu())
+        menu_button.set_tooltip_text("Menu")
+        headerbar.pack_end(menu_button)
+
+        return headerbar
 
     # -- shared post-mutation refresh -------------------------------------
 
     def after_database_mutation(self, resort=False, mark_dirty=True):
         """The single place every mutation (add/remove/edit/next-turn/
-        turn-activation/import/undo/redo) routes through afterwards, so
-        sorting, the current-turn selection, and the round display
-        always stay in sync with the database.
+        turn-activation/new/import/undo/redo) routes through
+        afterwards, so sorting, the current-turn selection, and the
+        round display always stay in sync with the database.
 
         mark_dirty=False is used only via SessionManager's
         on_state_changed callback (i.e. only for import), which
@@ -234,7 +259,7 @@ class AppWindow(Gtk.ApplicationWindow):
             self.initiative_database.set_current_creature(item)
             self.after_database_mutation(resort=False)
 
-    # -- toolbar actions ------------------------------------------------
+    # -- headerbar / menu actions ------------------------------------------------
 
     def on_next_turn_clicked(self, button):
         """Advances turn order by one creature (not undoable -- turn
@@ -253,19 +278,23 @@ class AppWindow(Gtk.ApplicationWindow):
         resort = creature_commands.add_creatures(self.initiative_database, self.undo_manager, creatures)
         self.after_database_mutation(resort=resort)
 
-    # -- import / export / close ------------------------------------------------
+    # -- new / import / export / close ------------------------------------------------
     #
     # All actual logic lives in SessionManager (session_manager.py) --
-    # these are thin entry points matching the buttons/signals that
-    # trigger them.
+    # these are thin win.* action handlers (activate signal: action,
+    # param), matching the hamburger menu, the traditional File menu,
+    # and keybinds.py's Ctrl+N.
 
-    def on_import_clicked(self, button):
+    def on_new(self, action, param):
+        self.session.try_new()
+
+    def on_import(self, action, param):
         self.session.try_import()
 
-    def on_export_clicked(self, button):
+    def on_export(self, action, param):
         self.session.try_export()
 
-    def on_export_as_clicked(self, button):
+    def on_export_as(self, action, param):
         self.session.try_export_as()
 
     def on_close_request(self, window):
