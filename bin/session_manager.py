@@ -79,6 +79,9 @@ class SessionManager:
         self._set_dirty(True)
 
     def _set_dirty(self, value):
+        """Sets dirty state and reflects it in the window title (a
+        leading "*") so it's visible at a glance, not just enforced
+        when closing/importing."""
         self.dirty = value
         self.window.set_title(f"*{self.base_title}" if value else self.base_title)
 

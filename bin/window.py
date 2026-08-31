@@ -131,9 +131,9 @@ class AppWindow(Gtk.ApplicationWindow):
 
     def after_database_mutation(self, resort=False, mark_dirty=True):
         """The single place every mutation (add/remove/edit/next-turn/
-        import/undo/redo) routes through afterwards, so sorting, the
-        current-turn selection, and the round display always stay in
-        sync with the database.
+        turn-activation/import/undo/redo) routes through afterwards, so
+        sorting, the current-turn selection, and the round display
+        always stay in sync with the database.
 
         mark_dirty=False is used only via SessionManager's
         on_state_changed callback (i.e. only for import), which

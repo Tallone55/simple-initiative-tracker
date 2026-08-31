@@ -1,10 +1,13 @@
 """Simple linear undo/redo history using the command pattern.
 
 Each undoable action pushes a Command: a pair of no-argument callables,
-undo() and redo(), each responsible for both mutating the data AND
-refreshing the UI (by calling AppWindow.after_database_mutation from
-within the closure) -- this module itself has no GTK dependency and
-doesn't know anything about creatures, windows, or widgets.
+undo() and redo(), which only mutate data (InitiativeDatabase /
+CreatureObject state) -- this module has no GTK dependency and doesn't
+know anything about creatures, windows, or widgets. Refreshing the UI
+after a replay is the caller's responsibility; see
+AppWindow.perform_undo/perform_redo, which call after_database_mutation
+unconditionally after every undo() or redo(), rather than each Command
+needing to trigger a refresh itself.
 
 Undoing pops from the undo stack, calls undo(), and pushes the same
 Command onto the redo stack; redoing does the reverse. Pushing a brand
@@ -22,6 +25,10 @@ from typing import Callable
 
 @dataclass
 class Command:
+    """undo/redo: no-argument callables that mutate data only (see
+    module docstring). description is a human-readable label, currently
+    unused anywhere but the constructor call -- see the accompanying
+    audit notes on unreferenced components."""
     undo: Callable[[], None]
     redo: Callable[[], None]
     description: str = ""
