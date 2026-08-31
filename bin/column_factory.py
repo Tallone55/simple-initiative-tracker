@@ -1,48 +1,39 @@
 """Builds the Gtk.ColumnView columns for creature entries.
 
-Gtk.ColumnView (rather than a hand-built Gtk.ListView row) is what gives
-us resizable columns whose header and body cells stay aligned for free --
-that alignment/resize behavior is built into the widget, not something we
-maintain by hand.
+Gtk.ColumnView (rather than a hand-built Gtk.ListView row) gives us
+resizable columns whose header and body cells stay aligned automatically
+-- that behavior is built into the widget, not something maintained by
+hand here.
 
 The current-turn highlight is driven by native row selection (a
-Gtk.SingleSelection on the ColumnView) rather than a per-cell CSS class:
-an earlier per-cell approach had a CSS specificity bug (a later rule
-silently overrode the highlight's background-color on most cells) and
-never fully solved the "highlight spans the whole row" problem cleanly.
-Native selection handles that for free.
+Gtk.SingleSelection on the ColumnView, configured in AppWindow) rather
+than a per-cell CSS class, since native selection highlights the whole
+row correctly with no extra work required here.
 
-Turn activation is via Gtk.ColumnView's own "activate" signal (fires on
-double-click by default), connected in AppWindow -- not implemented here
-via per-cell gesture n_press detection. That was tried first and doesn't
-work reliably: each field's edit dialog is modal and opens instantly on
-a single click's release, which swallows the second click of a
-double-click before it could ever be recognized as one. Per-cell clicks
-here are deliberately left unclaimed (see _build_field_column) so a
-click still reaches the row's own native selection handling underneath,
-keeping label clicks and background clicks consistent with each other.
+Turn activation (double-click) is handled via Gtk.ColumnView's own
+"activate" signal in AppWindow, not in this module. Each field's click
+handling here deliberately leaves its Gtk.GestureClick unclaimed, so the
+same click also reaches the row's native selection handling underneath.
 
-Minimum column width: Gtk.ColumnViewColumn has no min-width property.
-Interactively dragging a column below its content's natural size doesn't
-reduce the real layout allocation given to header or body content at
-all, so overflow-hiding/ellipsizing never gets a smaller allocation to
-act on in that specific scenario -- the fix there is intercepting the
-column's own fixed-width and clamping it back up (_enforce_min_width).
-
-Ellipsizing long content: a *different* scenario from the above, and one
-where ellipsizing genuinely works -- a column with an explicit starting
-fixed-width (not just a floor) that happens to be smaller than an
-unusually long value (a long creature name, or a large number from a
-dice-expression edit). Since Gtk.ColumnViewColumn auto-grows to fit
-content when fixed-width is unset, each column is given an explicit
-starting fixed-width equal to its floor, so long content has an actual
-fixed budget to overflow against instead of just growing the column.
+Gtk.ColumnViewColumn has no min-width property, and auto-grows to fit
+its content's natural size unless given an explicit starting
+fixed-width. Each column here is given both: a starting fixed-width (so
+unusually long content has a real budget to ellipsize against, instead
+of just growing the column) and a floor enforced against further drags
+via _enforce_min_width (see its docstring for why that needs watching a
+signal rather than just being a fixed property).
 """
 
 from gi.repository import Gtk, Pango
 
 
 class CreatureColumnFactory:
+    """Builds the list of Gtk.ColumnViewColumn objects for the creature
+    table: one column per displayed field, plus a remove-icon column.
+    Construct once per AppWindow and pass self.columns to a
+    Gtk.ColumnView.
+    """
+
     def __init__(
         self,
         on_edit_requested,
@@ -102,11 +93,22 @@ class CreatureColumnFactory:
 
     @staticmethod
     def _format_hitpoints(creature_obj):
+        """Display text for the Hitpoints cell: "current/max"."""
         return f"{creature_obj.hitpoints}/{creature_obj.max_hitpoints}"
 
     # -- generic text-cell column ------------------------------------------------
 
     def _build_field_column(self, title, getter, notify_props, on_click, expand=False, min_width=80):
+        """Builds one resizable, ellipsizing text column.
+
+        getter(creature_obj) -> str produces the cell's display text.
+        notify_props is the list of GObject property names (dash-case)
+        whose "notify::" signal should re-run getter and refresh the
+        label -- i.e. which CreatureObject properties this column's text
+        depends on. on_click(creature_obj) is called when the cell is
+        clicked. expand controls whether this column soaks up extra
+        Gtk.ColumnView width beyond the sum of all columns' widths.
+        """
         factory = Gtk.SignalListItemFactory()
 
         def on_setup(factory, list_item):
@@ -143,23 +145,15 @@ class CreatureColumnFactory:
             ]
 
             def handle_click(gesture, n_press, x, y):
-                # Every click here always opens the edit dialog,
-                # regardless of n_press -- distinguishing single vs.
-                # double click here doesn't work reliably, since the
-                # edit dialog is modal and pops up instantly on the
-                # first click's release, which swallows the second click
-                # before a double-click could ever be recognized. Turn
-                # activation is handled separately, at the ColumnView
-                # level, via double-clicks landing outside these cells.
+                # Every click opens the edit dialog; turn activation
+                # (double-click) is handled separately, by the
+                # ColumnView's own "activate" signal in AppWindow.
                 on_click(creature_obj)
-                # Deliberately NOT claiming this gesture's state: letting
-                # the click also reach the row's own native selection
-                # handling means a click here causes the same transient
-                # visual selection that clicking row background does,
-                # rather than labels behaving differently from
-                # everything else. It's only ever "transient" because
-                # _sync_selection() re-asserts the real current turn
-                # after any actual state change.
+                # Left unclaimed so the click also reaches the row's
+                # native selection handling -- causes the same
+                # transient visual selection here that clicking row
+                # background does, corrected by AppWindow._sync_selection()
+                # after any real state change.
 
             list_item.click_handler_id = list_item.click_gesture.connect(
                 "released", handle_click
@@ -211,6 +205,8 @@ class CreatureColumnFactory:
     # -- remove (trash-can icon) column ------------------------------------------------
 
     def _build_remove_column(self, min_width=48):
+        """Builds the fixed-width, non-resizable icon column used to
+        remove a creature from the list."""
         factory = Gtk.SignalListItemFactory()
 
         def on_setup(factory, list_item):

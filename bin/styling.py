@@ -1,9 +1,6 @@
 from gi.repository import Gdk, Gtk
 
 CSS = b"""
-.initiative-row {
-    padding: 1px 0;
-}
 .action-add {
     background-color: #a8e6a3;
 }
@@ -11,7 +8,7 @@ CSS = b"""
     background-color: #a3c9e6;
 }
 .editable-cell {
-    padding: 2px 4px;
+    padding: 8px 12px;
     background-color: rgba(0, 0, 0, 0.03);
 }
 .editable-cell:hover {
@@ -21,15 +18,9 @@ CSS = b"""
     font-weight: bold;
     font-size: 1.15em;
 }
-/* Best-effort attempt to recolor GtkColumnView's native selected-row
-   state to match the app's yellow, rather than the theme's default
-   accent color. Not verified against a live GTK session -- the exact
-   CSS node path for a selected row inside ColumnView's internal
-   listview wasn't something documentation confirmed precisely, so this
-   selector is an educated guess based on GTK's documented widget/CSS
-   node naming conventions. If the highlight color doesn't change, GTK
-   Inspector (Ctrl+Shift+D while running) would show the real node names
-   to target here. */
+/* Recolors Gtk.ColumnView's native selected-row state (used for the
+   current-turn highlight) to the app's yellow, rather than the theme's
+   default accent color. */
 columnview row:selected,
 columnview row:selected:hover {
     background-color: #fff3b0;
@@ -39,6 +30,8 @@ columnview row:selected:hover {
 
 
 def install_css():
+    """Registers CSS above as a global style provider, applied to
+    every widget in the app. Called once from Application.do_startup."""
     provider = Gtk.CssProvider()
     provider.load_from_data(CSS)
     Gtk.StyleContext.add_provider_for_display(

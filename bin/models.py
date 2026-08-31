@@ -11,7 +11,10 @@ from dataclasses import dataclass
 
 from gi.repository import Gio, Gtk, GObject
 
-from constants import CSV_HEADERS
+# The CSV column order used by both export and import -- kept here
+# rather than in a shared constants module since this is the only
+# consumer.
+CSV_HEADERS = ["Creature", "Hitpoints", "Max Hitpoints", "Armor Class", "Initiative Roll"]
 
 
 @dataclass
@@ -95,6 +98,7 @@ class InitiativeDatabase:
 
     @staticmethod
     def _compare(a, b, user_data=None):
+        """Gtk.CustomSorter comparison: descending by initiative_roll."""
         if a.initiative_roll > b.initiative_roll:
             return -1
         if a.initiative_roll < b.initiative_roll:
@@ -102,10 +106,13 @@ class InitiativeDatabase:
         return 0
 
     def _sorted_list(self):
+        """Returns the current turn order as a plain Python list."""
         n = self.sorted_model.get_n_items()
         return [self.sorted_model.get_item(i) for i in range(n)]
 
     def _current_index(self):
+        """Position of current_creature within the sorted turn order,
+        or None if there's no current creature or it's not in the list."""
         items = self._sorted_list()
         if self.current_creature in items:
             return items.index(self.current_creature)
@@ -117,12 +124,15 @@ class InitiativeDatabase:
         self.sorter.changed(Gtk.SorterChange.DIFFERENT)
 
     def add_creature(self, creature: Creature) -> CreatureObject:
-        # A new arrival's higher roll only gets to jump the queue if
-        # whoever currently has the turn was already at the very top of
-        # the order -- i.e. combat hasn't meaningfully started yet, or
-        # it's genuinely the top roller's turn right now. Mid-round,
-        # adding creatures shouldn't disrupt whoever's turn it already
-        # is, even if the new arrival rolled higher.
+        """Adds a new creature to the database.
+
+        A new arrival's higher roll only gets to jump the queue if
+        whoever currently has the turn was already at the very top of
+        the order -- i.e. combat hasn't meaningfully started yet, or
+        it's genuinely the top roller's turn right now. Mid-round,
+        adding creatures shouldn't disrupt whoever's turn it already
+        is, even if the new arrival rolled higher.
+        """
         current_was_top = self.current_creature is not None and self._current_index() == 0
 
         obj = CreatureObject(creature)
@@ -142,6 +152,8 @@ class InitiativeDatabase:
         self.current_creature = creature_obj
 
     def remove_creature(self, creature_obj: CreatureObject):
+        """Removes a creature. If it was the current turn, current
+        becomes the new top of the turn order (or None if now empty)."""
         found, position = self.store.find(creature_obj)
         if found:
             self.store.remove(position)
@@ -150,6 +162,9 @@ class InitiativeDatabase:
             self.current_creature = items[0] if items else None
 
     def next_turn(self):
+        """Advances current_creature to the next creature in turn
+        order, wrapping back to the top and incrementing round_number
+        when a full cycle completes."""
         items = self._sorted_list()
         if not items:
             self.current_creature = None
@@ -166,6 +181,9 @@ class InitiativeDatabase:
             self.current_creature = items[new_idx]
 
     def export_csv(self, path):
+        """Writes the full creature list to path as CSV, current
+        creature first followed by the rest in turn order (wrapping
+        around), with the round number appended to the header row."""
         items = self._sorted_list()
         idx = self._current_index()
         if idx is None:
@@ -192,6 +210,10 @@ class InitiativeDatabase:
                 ])
 
     def import_csv(self, path):
+        """Replaces the entire creature list with the contents of path.
+        The header row is skipped for creature data but its trailing
+        cell (if present) is read back as the round number. Malformed
+        data rows (fewer than 5 columns) are silently skipped."""
         with open(path, "r", newline="", encoding="utf-8") as f:
             rows = list(csv.reader(f))
 

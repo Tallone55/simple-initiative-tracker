@@ -1,3 +1,7 @@
+"""Locations of the app's .ui files -- the single source of truth for
+where each dialog's XML definition lives on disk.
+"""
+
 from pathlib import Path
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
@@ -8,5 +12,4 @@ FILE_PICKER_UI_PATH = str(UI_DIR / "file-picker.ui")
 EDIT_FIELD_UI_PATH = str(UI_DIR / "edit-field.ui")
 EDIT_HITPOINTS_UI_PATH = str(UI_DIR / "edit-hitpoints.ui")
 ADD_CREATURE_UI_PATH = str(UI_DIR / "add-creature.ui")
-
-CSV_HEADERS = ["Creature", "Hitpoints", "Max Hitpoints", "Armor Class", "Initiative Roll"]
+UNSAVED_CHANGES_UI_PATH = str(UI_DIR / "unsaved-changes.ui")

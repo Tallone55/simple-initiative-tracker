@@ -61,6 +61,8 @@ class ExpressionError(ValueError):
 
 
 def _roll_dice(count: int, sides: int) -> int:
+    """Rolls `count` dice of `sides` sides each and returns their sum,
+    with sanity bounds against absurd input (e.g. a typo'd huge number)."""
     if sides < 1:
         raise ExpressionError(f"A die must have at least 1 side (got d{sides}).")
     if count < 0:
@@ -74,6 +76,9 @@ def _roll_dice(count: int, sides: int) -> int:
 
 
 def _substitute_dice_rolls(text: str) -> str:
+    """Replaces every dice-notation token in text with the literal
+    integer sum of rolling it, leaving the rest of the text untouched
+    for the arithmetic parser to handle afterward."""
     def replace(match):
         count_str, sides_str = match.group(1), match.group(2)
         count = int(count_str) if count_str else 1
@@ -84,6 +89,11 @@ def _substitute_dice_rolls(text: str) -> str:
 
 
 def evaluate_int_expression(text: str) -> int:
+    """Evaluates text as an integer or arithmetic/dice expression and
+    returns the result as an int. Raises ExpressionError for invalid
+    syntax, non-integer results, or results outside GObject's gint
+    range -- never raises any other exception type, so callers only
+    need to catch ExpressionError."""
     text = text.strip()
     if not text:
         raise ExpressionError("Value cannot be empty.")
@@ -123,6 +133,9 @@ def evaluate_int_expression(text: str) -> int:
 
 
 def _eval_node(node):
+    """Recursively evaluates one AST node from the whitelist of
+    permitted node types (see module docstring); raises ExpressionError
+    for anything outside that whitelist."""
     if isinstance(node, ast.Constant):
         if isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
             return node.value

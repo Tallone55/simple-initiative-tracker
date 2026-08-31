@@ -1,20 +1,31 @@
-import csv
+from gi.repository import Gtk
 
-from gi.repository import Gio, Gtk, GLib
-
-from constants import FILE_PICKER_UI_PATH
 from models import InitiativeDatabase
-from dialogs import open_edit_dialog, open_edit_hitpoints_dialog, open_add_creature_dialog
+from creature_dialogs import open_edit_dialog, open_edit_hitpoints_dialog, open_add_creature_dialog
 from column_factory import CreatureColumnFactory
+from undo_manager import UndoManager
+from session_manager import SessionManager
+import creature_commands
 
 
 class AppWindow(Gtk.ApplicationWindow):
     def __init__(self, *args, **kwargs):
+        """Builds the whole UI: toolbar, creature table, status line.
+        Creature mutation/undo logic lives in creature_commands.py;
+        file/session logic (import/export/close/cache) lives in
+        session_manager.py -- this class owns widget construction and
+        wires the two together via after_database_mutation."""
         super().__init__(*args, **kwargs)
         self.set_default_size(760, 480)
 
         self.initiative_database = InitiativeDatabase()
-        self.last_file_path = None
+        self.undo_manager = UndoManager()
+        self.session = SessionManager(
+            window=self,
+            initiative_database=self.initiative_database,
+            undo_manager=self.undo_manager,
+            on_state_changed=lambda resort: self.after_database_mutation(resort=resort, mark_dirty=False),
+        )
 
         self.creature_columns = CreatureColumnFactory(
             on_edit_requested=self._handle_edit_requested,
@@ -22,25 +33,23 @@ class AppWindow(Gtk.ApplicationWindow):
             on_remove_requested=self._handle_remove_requested,
         )
 
-        self.file_dialog = self._load_file_dialog()
-
         root = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             spacing=6,
-            margin_top=4, margin_bottom=4, margin_start=4, margin_end=4,
+            margin_top=6, margin_bottom=6, margin_start=6, margin_end=6,
         )
         self.set_child(root)
 
         root.append(self._build_toolbar())
         self.update_round_label()
 
-        # Native row selection gives us full-row highlighting for free,
-        # instead of the earlier per-cell CSS-class approach. Selection
-        # is normally driven by our own code (_sync_selection, called
-        # after any real state change) rather than raw clicks -- but a
-        # single click can still cause a transient native selection on
-        # its own (see column_factory.py), which just gets overwritten
-        # the next time something actually changes state.
+        # Native row selection gives us full-row highlighting for the
+        # current turn. Selection is normally driven by our own code
+        # (_sync_selection, called after any real state change) rather
+        # than raw clicks -- but a single click can still cause a
+        # transient native selection on its own (see column_factory.py),
+        # which just gets overwritten the next time something actually
+        # changes state.
         #
         # Turn activation is via the native "activate" signal (fires on
         # double-click by default -- single_click_activate is False
@@ -64,21 +73,19 @@ class AppWindow(Gtk.ApplicationWindow):
 
         self._sync_selection()
 
+        # Intercept the titlebar close button (and, via Application.quit
+        # routing app.quit through window.close(), Ctrl+Q / any "Quit"
+        # menu item too) so unsaved changes get a chance to be exported
+        # first instead of silently discarded.
+        self.connect("close-request", self.on_close_request)
+
+        # Auto-load whatever CSV was last opened/saved, if the cache
+        # points at one that still exists. Happens last, after
+        # everything above is fully constructed, since it goes through
+        # the same import path that touches selection/round-label/etc.
+        self.session.load_cached_file_on_startup()
+
     # -- construction helpers ------------------------------------------------
-
-    def _load_file_dialog(self):
-        builder = Gtk.Builder()
-        builder.add_from_file(FILE_PICKER_UI_PATH)
-        file_dialog = builder.get_object("file_chooser")
-
-        csv_filter = Gtk.FileFilter()
-        csv_filter.set_name("CSV files")
-        csv_filter.add_suffix("csv")
-        filters = Gio.ListStore(item_type=Gtk.FileFilter)
-        filters.append(csv_filter)
-        file_dialog.set_filters(filters)
-
-        return file_dialog
 
     def _build_toolbar(self):
         # Left group: creature/turn management. Right group: file I/O.
@@ -122,15 +129,24 @@ class AppWindow(Gtk.ApplicationWindow):
 
     # -- shared post-mutation refresh -------------------------------------
 
-    def after_database_mutation(self, resort=False):
+    def after_database_mutation(self, resort=False, mark_dirty=True):
         """The single place every mutation (add/remove/edit/next-turn/
-        import) routes through afterwards, so sorting, the current-turn
-        selection, and the round display always stay in sync with the
-        database."""
+        import/undo/redo) routes through afterwards, so sorting, the
+        current-turn selection, and the round display always stay in
+        sync with the database.
+
+        mark_dirty=False is used only via SessionManager's
+        on_state_changed callback (i.e. only for import), which
+        replaces the entire in-memory state with exactly what's on
+        disk -- the result is, by definition, already in sync with a
+        file, so it shouldn't be flagged as needing export.
+        """
         if resort:
             self.initiative_database.resort()
         self._sync_selection()
         self.update_round_label()
+        if mark_dirty:
+            self.session.mark_dirty()
 
     def _sync_selection(self):
         """Moves native row selection to match current_creature. This is
@@ -149,29 +165,70 @@ class AppWindow(Gtk.ApplicationWindow):
                 return
 
     def update_round_label(self):
+        """Refreshes the centered round-counter label to match the
+        database's current round_number."""
         self.round_label.set_label(f"Round {self.initiative_database.round_number}")
 
     def show_status(self, message):
+        """Displays a one-line status message below the creature table
+        (import/export results, errors, etc.). Called by SessionManager
+        too, via its window reference."""
         self.status_label.set_text(message)
+
+    # -- undo / redo ------------------------------------------------
+
+    def perform_undo(self):
+        """Entry point for the app.undo action (Ctrl+Z). Commands built
+        in creature_commands.py only mutate data, not the UI, so a
+        refresh is triggered here unconditionally after every undo."""
+        self.undo_manager.undo()
+        self.after_database_mutation(resort=True)
+
+    def perform_redo(self):
+        """Entry point for the app.redo action (Ctrl+Y / Ctrl+Shift+Z)."""
+        self.undo_manager.redo()
+        self.after_database_mutation(resort=True)
 
     # -- column factory callbacks ------------------------------------------------
 
     def _handle_edit_requested(self, creature_obj, field_name, display_name):
-        open_edit_dialog(
-            self, creature_obj, field_name, display_name, self.after_database_mutation
-        )
+        """Opens the generic text-field edit dialog for one creature
+        field; the undo/redo command itself is built in
+        creature_commands.py."""
+        def on_committed(old_value, new_value, resort):
+            creature_commands.edit_field(
+                self.undo_manager, creature_obj, field_name, display_name, old_value, new_value
+            )
+            self.after_database_mutation(resort=resort)
+
+        open_edit_dialog(self, creature_obj, field_name, display_name, on_committed)
 
     def _handle_hitpoints_edit_requested(self, creature_obj):
-        open_edit_hitpoints_dialog(self, creature_obj, self.after_database_mutation)
+        """Opens the dedicated hitpoints dialog; the undo/redo command
+        (covering current and max HP together) is built in
+        creature_commands.py."""
+        def on_committed(old_hp, old_max, new_hp, new_max):
+            creature_commands.edit_hitpoints(
+                self.undo_manager, creature_obj, old_hp, old_max, new_hp, new_max
+            )
+            self.after_database_mutation(resort=False)
+
+        open_edit_hitpoints_dialog(self, creature_obj, on_committed)
 
     def _handle_remove_requested(self, creature_obj):
-        self.initiative_database.remove_creature(creature_obj)
-        self.after_database_mutation(resort=False)
+        """Removes a creature via creature_commands, which also
+        registers the matching undo/redo command."""
+        resort = creature_commands.remove_creature(
+            self.initiative_database, self.undo_manager, creature_obj
+        )
+        self.after_database_mutation(resort=resort)
 
     def _on_row_activated(self, column_view, position):
         """Native Gtk.ColumnView "activate" signal -- fires on
         double-click (single_click_activate is False). Manually sets
-        whose turn it is, distinct from Next Turn advancing the order."""
+        whose turn it is, distinct from Next Turn advancing the order.
+        Not undoable -- turn activation is out of scope for the undo
+        history."""
         item = self.selection_model.get_item(position)
         if item is not None:
             self.initiative_database.set_current_creature(item)
@@ -180,84 +237,41 @@ class AppWindow(Gtk.ApplicationWindow):
     # -- toolbar actions ------------------------------------------------
 
     def on_next_turn_clicked(self, button):
+        """Advances turn order by one creature (not undoable -- turn
+        advancement is out of scope for the undo history)."""
         self.initiative_database.next_turn()
         self.after_database_mutation(resort=False)
 
     def on_add_creature_clicked(self, button):
+        """Opens the Add Creature dialog."""
         open_add_creature_dialog(self, self._handle_creatures_added)
 
     def _handle_creatures_added(self, creatures):
-        for creature in creatures:
-            self.initiative_database.add_creature(creature)
-        self.after_database_mutation(resort=True)
+        """Adds one or more new creatures via creature_commands, which
+        also registers the matching undo/redo command (a bulk add
+        counts as a single undo step)."""
+        resort = creature_commands.add_creatures(self.initiative_database, self.undo_manager, creatures)
+        self.after_database_mutation(resort=resort)
 
-    # -- import / export ------------------------------------------------
+    # -- import / export / close ------------------------------------------------
+    #
+    # All actual logic lives in SessionManager (session_manager.py) --
+    # these are thin entry points matching the buttons/signals that
+    # trigger them.
 
     def on_import_clicked(self, button):
-        self.file_dialog.set_title("Import Initiative Tracker (CSV)")
-        self.file_dialog.open(self, None, self.on_import_dialog_open)
-
-    def on_import_dialog_open(self, dialog, result):
-        try:
-            gfile = dialog.open_finish(result)
-        except GLib.Error as e:
-            if e.matches(Gtk.DialogError.quark(), Gtk.DialogError.DISMISSED):
-                return
-            self.show_status(f"Error opening file dialog: {e.message}")
-            return
-
-        if gfile is None:
-            return
-
-        path = gfile.get_path()
-        try:
-            self.initiative_database.import_csv(path)
-        except (OSError, csv.Error, ValueError) as e:
-            self.show_status(f"Import failed: {e}")
-            return
-
-        self.last_file_path = path
-        self.after_database_mutation(resort=True)
-        self.show_status(f"Imported {path}")
+        self.session.try_import()
 
     def on_export_clicked(self, button):
-        """Export to the last-used path; if none is known yet, this
-        behaves the same as Export As."""
-        if self.last_file_path:
-            self.export_to_path(self.last_file_path)
-        else:
-            self._open_export_dialog()
+        self.session.try_export()
 
     def on_export_as_clicked(self, button):
-        """Always prompts for a location, regardless of any remembered
-        last_file_path."""
-        self._open_export_dialog()
+        self.session.try_export_as()
 
-    def _open_export_dialog(self):
-        self.file_dialog.set_title("Export Initiative Tracker (CSV)")
-        self.file_dialog.set_initial_name("initiative.csv")
-        self.file_dialog.save(self, None, self.on_export_dialog_save)
-
-    def on_export_dialog_save(self, dialog, result):
-        try:
-            gfile = dialog.save_finish(result)
-        except GLib.Error as e:
-            if e.matches(Gtk.DialogError.quark(), Gtk.DialogError.DISMISSED):
-                return
-            self.show_status(f"Error opening file dialog: {e.message}")
-            return
-
-        if gfile is None:
-            return
-
-        self.export_to_path(gfile.get_path())
-
-    def export_to_path(self, path):
-        try:
-            self.initiative_database.export_csv(path)
-        except OSError as e:
-            self.show_status(f"Export failed: {e}")
-            return
-
-        self.last_file_path = path
-        self.show_status(f"Exported to {path}")
+    def on_close_request(self, window):
+        """Gtk.Window's "close-request" signal -- fired by the titlebar
+        close button, and by window.close() (which app.quit routes
+        through). Returning True blocks the default close so
+        SessionManager can ask first; returning False lets it proceed
+        immediately."""
+        return self.session.try_close()

@@ -1,21 +1,24 @@
-"""Modal dialogs, built from their .ui files. These are plain functions
-rather than methods on AppWindow -- each takes the parent window and a
-callback to invoke on success, so they don't need to know anything about
-AppWindow's internals.
+"""Modal dialogs for creating and editing creatures, built from their
+.ui files. Plain functions rather than methods on AppWindow -- each
+takes the parent window and a callback to invoke on success, so they
+don't need to know anything about AppWindow's internals.
 """
 
 import random
 
 from gi.repository import Gtk
 
-from constants import EDIT_FIELD_UI_PATH, EDIT_HITPOINTS_UI_PATH, ADD_CREATURE_UI_PATH
+from ui_paths import EDIT_FIELD_UI_PATH, EDIT_HITPOINTS_UI_PATH, ADD_CREATURE_UI_PATH
 from models import Creature
 from expressions import evaluate_int_expression, ExpressionError
 
 
 def open_edit_dialog(parent, creature_obj, field_name, display_name, on_committed):
-    """on_committed(resort: bool) is called after a successful update,
-    once the dialog has already been destroyed."""
+    """on_committed(old_value, new_value, resort: bool) is called after a
+    successful update, once the dialog has already been destroyed --
+    both values are passed (rather than just applying the change here
+    and reporting success) so the caller can build an undo/redo command
+    from them."""
     builder = Gtk.Builder()
     builder.add_from_file(EDIT_FIELD_UI_PATH)
 
@@ -27,26 +30,26 @@ def open_edit_dialog(parent, creature_obj, field_name, display_name, on_committe
     window.set_title(f"Edit {display_name}")
     window.set_transient_for(parent)
 
-    current_value = getattr(creature_obj, field_name)
-    entry.set_text(str(current_value))
+    old_value = getattr(creature_obj, field_name)
+    entry.set_text(str(old_value))
 
     def on_update(_button):
         raw = entry.get_text().strip()
         entry.remove_css_class("error")
 
         if field_name == "name":
-            setattr(creature_obj, field_name, raw or "Unnamed")
+            new_value = raw or "Unnamed"
         else:
             try:
-                value = evaluate_int_expression(raw)
+                new_value = evaluate_int_expression(raw)
             except ExpressionError:
                 entry.add_css_class("error")
                 return
-            setattr(creature_obj, field_name, value)
 
+        setattr(creature_obj, field_name, new_value)
         resort = field_name == "initiative_roll"
         window.destroy()
-        on_committed(resort=resort)
+        on_committed(old_value, new_value, resort)
 
     def on_cancel(_button):
         window.destroy()
@@ -60,6 +63,11 @@ def open_edit_hitpoints_dialog(parent, creature_obj, on_committed):
     """Dedicated hitpoints editor: current and max HP as plain text
     entries, each pre-filled with its current value and evaluated as an
     arithmetic expression on Update (e.g. edit "23" to "23+5" to heal 5).
+
+    on_committed(old_hitpoints, old_max, new_hitpoints, new_max) is
+    called after a successful update, once the dialog has already been
+    destroyed -- both value pairs are passed so the caller can build a
+    single undo/redo command covering both fields together.
     """
     builder = Gtk.Builder()
     builder.add_from_file(EDIT_HITPOINTS_UI_PATH)
@@ -72,8 +80,10 @@ def open_edit_hitpoints_dialog(parent, creature_obj, on_committed):
 
     window.set_transient_for(parent)
 
-    current_entry.set_text(str(creature_obj.hitpoints))
-    max_entry.set_text(str(creature_obj.max_hitpoints))
+    old_hitpoints = creature_obj.hitpoints
+    old_max = creature_obj.max_hitpoints
+    current_entry.set_text(str(old_hitpoints))
+    max_entry.set_text(str(old_max))
 
     def on_update(_button):
         current_entry.remove_css_class("error")
@@ -97,7 +107,7 @@ def open_edit_hitpoints_dialog(parent, creature_obj, on_committed):
         creature_obj.max_hitpoints = new_max
         creature_obj.hitpoints = new_current
         window.destroy()
-        on_committed(resort=False)
+        on_committed(old_hitpoints, old_max, new_current, new_max)
 
     def on_cancel(_button):
         window.destroy()
