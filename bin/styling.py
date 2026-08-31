@@ -28,11 +28,23 @@ headerbar button.action-add {
     color: #0d3d0f;
     font-weight: bold;
 }
+headerbar button.action-add:hover {
+    background-color: #6dac70;
+}
+headerbar button.action-add:active {
+    background-color: #619963;
+}
 headerbar button.action-next-turn {
     background-color: #5b9bd5;
     background-image: none;
     color: #0a2d4d;
     font-weight: bold;
+}
+headerbar button.action-next-turn:hover {
+    background-color: #5088bb;
+}
+headerbar button.action-next-turn:active {
+    background-color: #4779a6;
 }
 .editable-cell {
     padding: 8px 12px;

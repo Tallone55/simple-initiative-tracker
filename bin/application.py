@@ -5,9 +5,21 @@ from styling import install_css
 from keybinds import KEYBINDS
 from app_menus import build_menubar
 from theme_sync import sync_theme, reapply as reapply_theme
+import adwaita
+
+# Adw.Application when libadwaita is available -- this is what
+# actually triggers libadwaita's own native theme integration
+# (including Linux Mint's patched build reading real system theme
+# colors directly, see theme_sync.py's module docstring), rather than
+# theme_sync.py's own approximated fallback CSS, which is used only
+# when libadwaita genuinely isn't installed. Every other widget in
+# this app (Gtk.HeaderBar, Gtk.ColumnView, etc.) stays exactly as-is
+# either way -- libadwaita's stylesheet applies through shared GTK CSS
+# node names, not by requiring Adw-specific widget classes.
+_ApplicationBase = adwaita.Adw.Application if adwaita.AVAILABLE else Gtk.Application
 
 
-class Application(Gtk.Application):
+class Application(_ApplicationBase):
     def __init__(self, *args, **kwargs):
         # SIT: Simple Initiative Tracker
         super().__init__(*args, application_id="net.mystive.sit", **kwargs)

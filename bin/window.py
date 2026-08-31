@@ -39,7 +39,6 @@ class AppWindow(Gtk.ApplicationWindow):
         )
 
         self.set_titlebar(self._build_headerbar())
-        self.update_round_label()
 
         root = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -47,6 +46,11 @@ class AppWindow(Gtk.ApplicationWindow):
             margin_top=6, margin_bottom=6, margin_start=6, margin_end=6,
         )
         self.set_child(root)
+
+        self.round_label = Gtk.Label(label="Round 1", xalign=0.5, hexpand=True)
+        self.round_label.add_css_class("round-counter")
+        root.append(self.round_label)
+        self.update_round_label()
 
         # Native row selection gives us full-row highlighting for the
         # current turn. Selection is normally driven by our own code
@@ -140,9 +144,12 @@ class AppWindow(Gtk.ApplicationWindow):
         next_turn_button.connect("clicked", self.on_next_turn_clicked)
         headerbar.pack_start(next_turn_button)
 
-        self.round_label = Gtk.Label(label="Round 1")
-        self.round_label.add_css_class("round-counter")
-        headerbar.set_title_widget(self.round_label)
+        # No custom title_widget here -- the headerbar shows its normal
+        # title text (SessionManager already manages this via
+        # self.set_title(), including the "*" unsaved-changes prefix).
+        # The round counter lives in its own row below the headerbar
+        # instead (see __init__), since the two headerbar buttons above
+        # left no good place for a centered title widget anyway.
 
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")

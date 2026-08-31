@@ -1,2 +1,3 @@
-Prompt to save current work (export) if current changes are unsaved
-Undo history?
+System for Temp HP which is listed separately in the hitpoint field
+Add a field for creature status supporting an arbitrary string
+Center the remove buttons in their column

@@ -1,12 +1,13 @@
 Package: initiative-tracker
-Version: 0.1.0
+Version: 1.1.0
 Section: games
 Priority: optional
 Architecture: all
 Depends: python3 (>= 3.10), python3-gi, gir1.2-gtk-4.0 (>= 4.10)
-Maintainer: Thomas (hall.thomas.010@gmail.com)
+Recommends: gir1.2-adw-1
+Maintainer: Thomas Hall (hall.thomas.010@gmail.com)
 Description: Simple Initiative Tracker
  A lightweight GTK4 combat initiative tracker for tabletop games.
  Tracks creature hitpoints, armor class, and turn order, with support
  for dice-notation and arithmetic expressions, CSV import/export, and
- undo/redo.
+ undo/redo. Supports Libadwaita theming.

@@ -33,45 +33,35 @@ light default regardless of the system's actual preference. Since
 there's no theme CSS to inherit from, this module also supplies its
 own minimal dark-mode CSS fallback whenever dark mode is detected as
 desired, applied via the same CssProvider mechanism as styling.py.
+
+The colors used for that fallback are resolved dynamically per
+_current_theme_name via theme_colors.resolve_colors() -- reading the
+ACTIVE theme's own libadwaita color file when Cinnamon has told us a
+theme name and that theme provides one (confirmed concretely: Linux
+Mint's own theme packages do), falling back to libadwaita's stock
+published defaults otherwise -- symmetrically for both light and dark
+mode, not just dark. This is deliberately NOT a hardcoded palette for
+one specific theme -- it follows whatever theme is actually selected,
+on whatever system this runs on.
+
+This fallback CSS is a LAST RESORT, used only when libadwaita itself
+genuinely isn't installed (see adwaita.py). When it IS installed and
+application.py has adopted Adw.Application, libadwaita handles actual
+color application natively -- our own approximation would just be
+redundant guesswork sitting on top of the real thing, so
+_apply_fallback_css becomes a no-op in that case. gtk-theme-name is
+still synced either way (see _sync_cinnamon), since that's what tells
+a Mint-patched libadwaita which theme's colors to read in the first
+place -- only the CSS-building/applying part is skipped.
 """
 
 import os
 
 from gi.repository import Gio, GLib, Gtk, Gdk
 
-# background-image is reset to "none" alongside background-color
-# throughout, since a headerbar/columnview's focused-state background
-# is commonly painted via a gradient image that sits visually on top
-# of (and isn't cleared by) background-color alone. columnview >
-# header is targeted explicitly and separately from columnview >
-# listview, since the header portion is a distinct CSS node, not
-# covered by styling the body rows alone.
-#
-# Row background rules explicitly exclude :selected (via :not()) so
-# they never compete with styling.py's dedicated amber current-turn
-# rule for the same rows -- both are our own CSS at the same provider
-# priority, so rather than depend on getting specificity exactly right
-# a second time, this avoids the conflict outright by construction.
-_DARK_FALLBACK_CSS = b"""
-window, headerbar, columnview, columnview > listview, columnview > header {
-    background-color: #242424;
-    background-image: none;
-    color: #e9e9e9;
-}
-columnview > listview > row:not(:selected) {
-    background-color: #242424;
-    color: #e9e9e9;
-}
-columnview > listview > row:nth-child(even):not(:selected) {
-    background-color: #2a2a2a;
-}
-columnview > header > *,
-columnview > header button {
-    background-color: #242424;
-    background-image: none;
-    color: #e9e9e9;
-}
-"""
+import adwaita
+
+import theme_colors
 
 _dark_fallback_provider = None
 # Once the portal has successfully established itself as the dark-mode
@@ -82,6 +72,12 @@ _portal_is_authoritative = False
 # re-assert it without re-reading GSettings/the portal again.
 _current_prefers_dark = False
 _current_gtk_settings = None
+# Updated only by _sync_cinnamon, since it's the only mechanism that
+# ever has an actual theme NAME (portal/GNOME only ever give a
+# light/dark boolean) -- read by _apply_fallback_css whenever it needs
+# to resolve which theme's colors to use, independent of which
+# mechanism triggered the active/inactive decision itself.
+_current_theme_name = None
 
 
 def sync_theme(gtk_settings=None):
@@ -124,7 +120,7 @@ def reapply():
         _current_gtk_settings.set_property(
             "gtk-application-prefer-dark-theme", _current_prefers_dark
         )
-    _set_dark_fallback_active(_current_prefers_dark)
+    _apply_fallback_css(_current_prefers_dark)
 
 
 def _ordered_de_strategies():
@@ -185,7 +181,7 @@ def _sync_portal(gtk_settings):
         prefers_dark = value == 1
         _current_prefers_dark = prefers_dark
         gtk_settings.set_property("gtk-application-prefer-dark-theme", prefers_dark)
-        _set_dark_fallback_active(prefers_dark)
+        _apply_fallback_css(prefers_dark)
 
     apply(scheme_value)
 
@@ -239,7 +235,7 @@ def _try_open_schema(schema_id):
 def _sync_gnome(gtk_settings):
     """GNOME's dark/light toggle: org.gnome.desktop.interface /
     color-scheme -> Gtk.Settings::gtk-application-prefer-dark-theme.
-    Only drives the dark-fallback CSS if the portal hasn't already
+    Only drives the fallback CSS if the portal hasn't already
     established itself as authoritative."""
     settings = _try_open_schema("org.gnome.desktop.interface")
     if settings is None:
@@ -251,7 +247,7 @@ def _sync_gnome(gtk_settings):
         gtk_settings.set_property("gtk-application-prefer-dark-theme", prefers_dark)
         if not _portal_is_authoritative:
             _current_prefers_dark = prefers_dark
-            _set_dark_fallback_active(prefers_dark)
+            _apply_fallback_css(prefers_dark)
 
     apply()
     settings.connect("changed::color-scheme", apply)
@@ -262,24 +258,29 @@ def _sync_cinnamon(gtk_settings):
     """Cinnamon's named-theme selection: org.cinnamon.desktop.interface
     / gtk-theme -> Gtk.Settings::gtk-theme-name. The theme name is
     always applied regardless of the portal, since that part is
-    correct independent of which mechanism decides the dark-fallback
-    question. The "dark" substring check on the theme name (matching
-    the near-universal Linux theme naming convention -- Mint-Y-Dark,
-    Adwaita-dark, Yaru-dark, etc.) only drives the fallback CSS if the
-    portal hasn't already established itself as authoritative."""
+    correct independent of which mechanism decides the fallback
+    question -- and always recorded in _current_theme_name, for the
+    same reason, so theme_colors.resolve_colors() can use it whenever
+    the fallback CSS is (re)built by ANY mechanism, in either mode.
+    The "dark" substring check on the theme name (matching the
+    near-universal Linux theme naming convention -- Mint-Y-Dark,
+    Adwaita-dark, Yaru-dark, etc.) only drives the active/inactive
+    decision itself if the portal hasn't already established itself as
+    authoritative."""
     settings = _try_open_schema("org.cinnamon.desktop.interface")
     if settings is None:
         return None
 
     def apply(*_args):
-        global _current_prefers_dark
+        global _current_prefers_dark, _current_theme_name
         theme_name = settings.get_string("gtk-theme")
         if theme_name:
             gtk_settings.set_property("gtk-theme-name", theme_name)
+            _current_theme_name = theme_name
         if not _portal_is_authoritative:
             prefers_dark = "dark" in theme_name.lower()
             _current_prefers_dark = prefers_dark
-            _set_dark_fallback_active(prefers_dark)
+            _apply_fallback_css(prefers_dark)
 
     apply()
     settings.connect("changed::gtk-theme", apply)
@@ -288,15 +289,73 @@ def _sync_cinnamon(gtk_settings):
 
 # -- Fallback CSS ------------------------------------------------
 
-def _set_dark_fallback_active(active):
-    """Toggles the minimal dark-mode CSS supplement on or off.
+def _build_fallback_css(colors):
+    """Builds the fallback stylesheet from a resolved color dict (see
+    theme_colors.resolve_colors) -- works identically for either mode,
+    since the caller already resolved mode-appropriate colors.
+    background-image is reset to "none" alongside background-color
+    throughout, since a headerbar/columnview's focused-state
+    background is commonly painted via a gradient image that sits
+    visually on top of (and isn't cleared by) background-color alone.
 
-    Applied unconditionally whenever dark mode is detected as desired,
-    rather than trying to probe the filesystem for whether the active
-    theme happens to provide real GTK4 assets (fragile, and
-    theme-packaging-layout-dependent). If the real system theme DOES
-    provide correct GTK4 dark styling on its own, this is simply
-    redundant with it, not conflicting.
+    Row background rules explicitly exclude :selected (via :not()) so
+    they never compete with styling.py's dedicated amber current-turn
+    rule for the same rows -- both are our own CSS at the same
+    provider priority, so rather than depend on getting specificity
+    exactly right, this avoids the conflict outright by construction.
+    Even-row striping uses alpha(currentColor, ...) -- the same
+    technique styling.py's .editable-cell already uses successfully --
+    rather than a fixed color, since there's no dedicated libadwaita
+    named color for it.
+    """
+    return f"""
+window {{
+    background-color: {colors['window_bg_color']};
+    background-image: none;
+    color: {colors['window_fg_color']};
+}}
+headerbar,
+columnview > header,
+columnview > header > *,
+columnview > header button {{
+    background-color: {colors['headerbar_bg_color']};
+    background-image: none;
+    color: {colors['headerbar_fg_color']};
+}}
+columnview,
+columnview > listview {{
+    background-color: {colors['view_bg_color']};
+    background-image: none;
+    color: {colors['view_fg_color']};
+}}
+columnview > listview > row:not(:selected) {{
+    background-color: {colors['view_bg_color']};
+    color: {colors['view_fg_color']};
+}}
+columnview > listview > row:nth-child(even):not(:selected) {{
+    background-color: alpha(currentColor, 0.05);
+}}
+popover {{
+    background-color: {colors['popover_bg_color']};
+    background-image: none;
+    color: {colors['popover_fg_color']};
+}}
+""".encode()
+
+
+def _apply_fallback_css(prefers_dark):
+    """Rebuilds and applies the fallback CSS for whichever mode
+    prefers_dark selects, always checking the active theme's own
+    colors (via theme_colors.resolve_colors, using _current_theme_name)
+    before falling back to libadwaita's stock published defaults --
+    symmetrically for both light and dark, not just dark. Runs on
+    every call rather than caching, so it always reflects whatever
+    theme is currently known, not a value captured once at startup.
+
+    A complete no-op when libadwaita is genuinely available (see
+    adwaita.py) -- application.py will have adopted Adw.Application in
+    that case, letting the real library apply theme colors natively
+    rather than through this module's own approximation.
 
     Toggles the SAME provider object's CONTENT (via load_from_data)
     rather than removing and re-adding the provider itself. That
@@ -311,19 +370,22 @@ def _set_dark_fallback_active(active):
     silently flipping which provider wins ties, without styling.py
     ever changing at all. Keeping one persistent provider object,
     added once, keeps that relationship constant regardless of how
-    many times dark mode gets toggled.
+    many times the mode gets toggled.
     """
-    provider = _get_dark_fallback_provider()
+    if adwaita.AVAILABLE:
+        return
+    provider = _get_fallback_provider()
     if provider is None:
         return
-    provider.load_from_data(_DARK_FALLBACK_CSS if active else b"")
+    colors = theme_colors.resolve_colors(_current_theme_name, dark=prefers_dark)
+    provider.load_from_data(_build_fallback_css(colors))
 
 
-def _get_dark_fallback_provider():
+def _get_fallback_provider():
     """Creates and registers the fallback CSS provider exactly once;
     returns the same object on every subsequent call. See
-    _set_dark_fallback_active's docstring for why this provider is
-    never removed once added."""
+    _apply_fallback_css's docstring for why this provider is never
+    removed once added."""
     global _dark_fallback_provider
     if _dark_fallback_provider is not None:
         return _dark_fallback_provider
