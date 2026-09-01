@@ -1,16 +1,7 @@
-"""Locations of the app's .ui files -- the single source of truth for
-where each dialog's XML definition lives on disk.
-
-Resolved two different ways depending on how the app is running:
-- Normal (unfrozen) execution, or installed via the .deb package: the
-  ui/ directory is a sibling of the directory this file itself lives
-  in, so it's resolved relative to __file__.
-- Frozen/bundled execution (e.g. via PyInstaller): __file__-relative
-  resolution doesn't hold, since a frozen build's runtime file layout
-  is entirely different from the source tree's -- a onefile build
-  extracts bundled data to a temp directory (sys._MEIPASS), while a
-  onedir build places it alongside the executable itself.
-"""
+"""Locations of the app's .ui files. Resolved relative to this file's
+own directory for normal/installed execution, or relative to the
+frozen executable's data directory (sys._MEIPASS or sys.executable)
+when bundled via e.g. PyInstaller."""
 
 import sys
 from pathlib import Path
@@ -25,8 +16,6 @@ def _resolve_ui_dir() -> Path:
 
 UI_DIR = _resolve_ui_dir()
 
-# Gtk.Builder.add_from_file() expects a plain string, not a Path object,
-# so these are converted once here rather than at every call site.
 FILE_PICKER_UI_PATH = str(UI_DIR / "file-picker.ui")
 EDIT_FIELD_UI_PATH = str(UI_DIR / "edit-field.ui")
 EDIT_HITPOINTS_UI_PATH = str(UI_DIR / "edit-hitpoints.ui")

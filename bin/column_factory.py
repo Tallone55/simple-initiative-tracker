@@ -1,27 +1,17 @@
 """Builds the Gtk.ColumnView columns for creature entries.
 
-Gtk.ColumnView (rather than a hand-built Gtk.ListView row) gives us
-resizable columns whose header and body cells stay aligned automatically
--- that behavior is built into the widget, not something maintained by
-hand here.
-
 The current-turn highlight is driven by native row selection (a
 Gtk.SingleSelection on the ColumnView, configured in AppWindow) rather
-than a per-cell CSS class, since native selection highlights the whole
-row correctly with no extra work required here.
+than a per-cell CSS class. Turn activation (double-click) is handled
+via Gtk.ColumnView's own "activate" signal in AppWindow, not here --
+each field's click handling below deliberately leaves its
+Gtk.GestureClick unclaimed, so the same click also reaches the row's
+native selection handling underneath.
 
-Turn activation (double-click) is handled via Gtk.ColumnView's own
-"activate" signal in AppWindow, not in this module. Each field's click
-handling here deliberately leaves its Gtk.GestureClick unclaimed, so the
-same click also reaches the row's native selection handling underneath.
-
-Gtk.ColumnViewColumn has no min-width property, and auto-grows to fit
-its content's natural size unless given an explicit starting
-fixed-width. Each column here is given both: a starting fixed-width (so
-unusually long content has a real budget to ellipsize against, instead
-of just growing the column) and a floor enforced against further drags
-via _enforce_min_width (see its docstring for why that needs watching a
-signal rather than just being a fixed property).
+Gtk.ColumnViewColumn has no min-width property and auto-grows to fit
+its content unless given an explicit fixed-width, so each column here
+gets both a starting fixed-width and a floor enforced against further
+drags (see _enforce_min_width).
 """
 
 from gi.repository import Gtk, Pango
@@ -40,20 +30,12 @@ class CreatureColumnFactory:
         on_hitpoints_edit_requested,
         on_remove_requested,
     ):
-        """
-        on_edit_requested(creature_obj, field_name, display_name) -- called
-            on a click on the Creature / Armor Class / Initiative Roll cell.
-        on_hitpoints_edit_requested(creature_obj) -- called on a click on
-            the Hitpoints cell (routed separately since it opens a
-            dedicated current/max HP dialog rather than the generic
-            text-field editor).
-        on_remove_requested(creature_obj) -- called when a row's remove
-            button is clicked.
-
-        Turn activation (double-click) is handled separately, at the
-        Gtk.ColumnView level in AppWindow -- not here. See the module
-        docstring for why.
-        """
+        """on_edit_requested(creature_obj, field_name, display_name) is
+        called on a click on the Creature/Armor Class/Initiative Roll
+        cell. on_hitpoints_edit_requested(creature_obj) is called on
+        the Hitpoints cell (routed separately since it opens a
+        dedicated current/max HP dialog). on_remove_requested(creature_obj)
+        is called when a row's remove button is clicked."""
         self.on_edit_requested = on_edit_requested
         self.on_hitpoints_edit_requested = on_hitpoints_edit_requested
         self.on_remove_requested = on_remove_requested
@@ -99,16 +81,12 @@ class CreatureColumnFactory:
     # -- generic text-cell column ------------------------------------------------
 
     def _build_field_column(self, title, getter, notify_props, on_click, expand=False, min_width=80):
-        """Builds one resizable, ellipsizing text column.
-
-        getter(creature_obj) -> str produces the cell's display text.
-        notify_props is the list of GObject property names (dash-case)
-        whose "notify::" signal should re-run getter and refresh the
-        label -- i.e. which CreatureObject properties this column's text
-        depends on. on_click(creature_obj) is called when the cell is
-        clicked. expand controls whether this column soaks up extra
-        Gtk.ColumnView width beyond the sum of all columns' widths.
-        """
+        """Builds one resizable, ellipsizing text column. getter(creature_obj)
+        -> str produces the cell's display text; notify_props (dash-case
+        GObject property names) is which CreatureObject properties
+        should trigger a refresh via "notify::"; on_click(creature_obj)
+        fires on a cell click; expand controls whether this column
+        soaks up extra ColumnView width."""
         factory = Gtk.SignalListItemFactory()
 
         def on_setup(factory, list_item):
@@ -117,10 +95,9 @@ class CreatureColumnFactory:
             label.set_ellipsize(Pango.EllipsizeMode.END)
             label.set_overflow(Gtk.Overflow.HIDDEN)
             label.set_cursor_from_name("pointer")
-            # Gtk.ColumnViewColumn has no min-width property of its own --
-            # a resizable column's floor is derived from its cells' actual
-            # size requests, so this is what stops the column from being
-            # dragged down to (or below) zero and overlapping its neighbors.
+            # Stops the column from being dragged down to (or below)
+            # zero, since a resizable column's floor is derived from
+            # its cells' actual size requests.
             label.set_size_request(min_width, -1)
 
             click_gesture = Gtk.GestureClick()
@@ -146,14 +123,11 @@ class CreatureColumnFactory:
 
             def handle_click(gesture, n_press, x, y):
                 # Every click opens the edit dialog; turn activation
-                # (double-click) is handled separately, by the
-                # ColumnView's own "activate" signal in AppWindow.
+                # (double-click) is handled by the ColumnView's own
+                # "activate" signal in AppWindow. Left unclaimed so the
+                # click also reaches the row's native selection
+                # handling, corrected by _sync_selection() afterward.
                 on_click(creature_obj)
-                # Left unclaimed so the click also reaches the row's
-                # native selection handling -- causes the same
-                # transient visual selection here that clicking row
-                # background does, corrected by AppWindow._sync_selection()
-                # after any real state change.
 
             list_item.click_handler_id = list_item.click_gesture.connect(
                 "released", handle_click
@@ -176,25 +150,18 @@ class CreatureColumnFactory:
         column = Gtk.ColumnViewColumn(title=title, factory=factory)
         column.set_resizable(True)
         column.set_expand(expand)
-        # Without an explicit starting fixed-width, the column auto-grows
-        # to fit its content's natural size -- so an unusually long value
-        # would just widen the column rather than ever get ellipsized.
-        # Giving it a real starting width (rather than leaving it at -1
-        # / auto) means long content actually has a fixed budget to
-        # overflow against.
+        # A real starting width (rather than -1/auto) gives long
+        # content a fixed budget to ellipsize against, instead of just
+        # growing the column.
         column.set_fixed_width(min_width)
         self._enforce_min_width(column, min_width)
         return column
 
     @staticmethod
     def _enforce_min_width(column, min_width):
-        """Gtk.ColumnViewColumn has no min-width property -- resizable
-        columns just have their fixed-width set directly to the drag
-        position, with no clamping against content size. So instead we
-        watch fixed-width itself and snap it back up if a drag pushes it
-        below our floor. -1 means "unset / natural sizing", which we
-        leave alone.
-        """
+        """Gtk.ColumnViewColumn has no min-width property, so this
+        watches fixed-width and snaps it back up if a drag pushes it
+        below the floor. -1 ("unset / natural sizing") is left alone."""
         def on_notify_fixed_width(col, _pspec):
             width = col.get_fixed_width()
             if width != -1 and width < min_width:

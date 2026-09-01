@@ -11,12 +11,10 @@ import creature_commands
 
 class AppWindow(Gtk.ApplicationWindow):
     def __init__(self, *args, **kwargs):
-        """Builds the whole UI: headerbar (with the primary action
-        buttons, round counter, and hamburger menu), creature table,
-        status line. Creature mutation/undo logic lives in
-        creature_commands.py; file/session logic (new/import/export/
-        close/cache) lives in session_manager.py -- this class owns
-        widget construction and wires the two together via
+        """Builds the whole UI: headerbar, creature table, status line.
+        Creature mutation/undo logic lives in creature_commands.py;
+        file/session logic lives in session_manager.py -- this class
+        owns widget construction and wires the two together via
         after_database_mutation."""
         super().__init__(*args, **kwargs)
         self.set_default_size(760, 480)
@@ -52,17 +50,13 @@ class AppWindow(Gtk.ApplicationWindow):
         root.append(self.round_label)
         self.update_round_label()
 
-        # Native row selection gives us full-row highlighting for the
-        # current turn. Selection is normally driven by our own code
-        # (_sync_selection, called after any real state change) rather
-        # than raw clicks -- but a single click can still cause a
-        # transient native selection on its own (see column_factory.py),
-        # which just gets overwritten the next time something actually
-        # changes state.
-        #
-        # Turn activation is via the native "activate" signal (fires on
-        # double-click by default -- single_click_activate is False
-        # below to make that explicit rather than relying on the default).
+        # Native row selection gives full-row highlighting for the
+        # current turn, driven by _sync_selection (called after any
+        # real state change) rather than raw clicks -- a click can
+        # still cause a transient native selection (column_factory.py),
+        # overwritten next time state actually changes. Turn activation
+        # is via the native "activate" signal, which fires on
+        # double-click since single_click_activate is False below.
         self.selection_model = Gtk.SingleSelection(model=self.initiative_database.sorted_model)
         self.selection_model.set_autoselect(False)
         self.selection_model.set_can_unselect(True)
@@ -117,23 +111,12 @@ class AppWindow(Gtk.ApplicationWindow):
         self.add_action(export_as_action)
 
     def _build_headerbar(self):
-        """GNOME-style headerbar: primary creature/turn actions at the
-        start (left), the round counter centered in the title area, and
-        a hamburger menu at the end (right) for New/Import/Export/
-        Export As -- see app_menus.py. The traditional File menu bar
-        (application.py's set_menubar) carries the same four actions
-        for platforms where this headerbar convention isn't native.
-
-        Plain Gtk.HeaderBar -- an earlier version swapped this for
-        Adw.HeaderBar specifically to try to fix window-control
-        (minimize/maximize/close) theming, but that didn't resolve it,
-        and GTK Inspector comparison against a genuinely GTK3 reference
-        app showed the underlying assumption (that gnome-calculator
-        demonstrates working libadwaita theming on Mint) didn't hold up
-        -- see cinnamon_theme.py for the actual fix, which replaces the
-        window-control images directly rather than relying on either
-        HeaderBar implementation to theme them correctly on its own.
-        """
+        """GNOME-style headerbar: creature/turn actions at the start,
+        the round counter centered below (see __init__), and a
+        hamburger menu at the end for New/Import/Export/Export As (see
+        app_menus.py). Plain Gtk.HeaderBar -- window-control theming is
+        handled directly in cinnamon_theme.py rather than by relying on
+        Adw.HeaderBar."""
         headerbar = Gtk.HeaderBar()
 
         add_button = Gtk.Button(label="Add Creature")

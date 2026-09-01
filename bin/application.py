@@ -13,8 +13,8 @@ class Application(Gtk.Application):
         super().__init__(*args, application_id="net.mystive.sit", **kwargs)
         self.window = None
 
-    # Run on process registration, once
     def do_startup(self):
+        """Runs once, on process registration."""
         Gtk.Application.do_startup(self)
 
         quit_action = Gio.SimpleAction(name="quit")
@@ -29,55 +29,42 @@ class Application(Gtk.Application):
         redo_action.connect("activate", self.on_redo)
         self.add_action(redo_action)
 
-        # Accelerators are driven entirely by keybinds.py rather than
-        # hardcoded here -- change a shortcut by editing that file only.
         for action_name, accels in KEYBINDS.items():
             self.set_accels_for_action(action_name, accels)
 
         # Traditional "File" menu bar, for platforms where a headerbar
         # hamburger menu (see window.py) isn't the native convention.
-        # References the same win.* actions the headerbar menu does --
-        # both are built from app_menus.py so there's one definition,
-        # not two that could drift apart.
         self.set_menubar(build_menubar())
 
-        # See cinnamon_theme.py -- imports Mint Cinnamon's actual theme
-        # (colors, and eventually window-control images) directly,
-        # rather than relying on libadwaita to apply it for us. Scoped
-        # deliberately to Cinnamon; not a general cross-desktop system.
+        # Imports the Cinnamon desktop's active theme (see cinnamon_theme.py).
         self._theme_settings = sync_theme()
 
         install_css()
 
-    # Run on process activation (executable invoked through any means)
     def do_activate(self):
+        """Runs on every activation (app launch, or re-invocation while
+        already running)."""
         if not self.window:
-            # Construct the main window.
             self.window = AppWindow(application=self, title="Simple Initiative Tracker")
         self.window.present()
 
-        # Re-asserts the already-known theme state now that the window
-        # (and its headerbar's window-control buttons) actually exist
-        # -- see cinnamon_theme.reapply()'s docstring for why this
-        # second application is needed at all.
+        # Re-applies theme state now that the window (and its
+        # headerbar's window-control buttons) actually exist.
         reapply_theme()
 
     def on_quit(self, action, param):
         """app.quit action handler (Ctrl+Q or any Quit menu item)."""
         if self.window:
-            # Route through the window's own close sequence rather than
-            # quitting directly, so the unsaved-changes check (hooked
-            # into "close-request") gets a chance to run.
+            # Routes through the window's close sequence so the
+            # unsaved-changes check gets a chance to run.
             self.window.close()
         else:
             self.quit()
 
     def on_undo(self, action, param):
-        """app.undo action handler (Ctrl+Z)."""
         if self.window:
             self.window.perform_undo()
 
     def on_redo(self, action, param):
-        """app.redo action handler (Ctrl+Y / Ctrl+Shift+Z)."""
         if self.window:
             self.window.perform_redo()

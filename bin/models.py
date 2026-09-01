@@ -1,26 +1,20 @@
 """Data layer: the plain Creature record, its GObject wrapper for use in
-Gtk list models, and the InitiativeDatabase that owns the sorted,
-current-turn-aware collection of creatures.
-
-This module has no widgets in it on purpose -- everything here should be
-testable without a display.
-"""
+GTK list models, and the InitiativeDatabase that owns the sorted,
+current-turn-aware collection of creatures. No widgets here, so this is
+testable without a display."""
 
 import csv
 from dataclasses import dataclass
 
 from gi.repository import Gio, Gtk, GObject
 
-# The CSV column order used by both export and import -- kept here
-# rather than in a shared constants module since this is the only
-# consumer.
 CSV_HEADERS = ["Creature", "Hitpoints", "Max Hitpoints", "Armor Class", "Initiative Roll"]
 
 
 @dataclass
 class Creature:
-    """Plain composite data class. This is the source of truth for a
-    single creature's stats; CreatureObject below just exposes it to GTK."""
+    """Plain data class -- the source of truth for a single creature's
+    stats. CreatureObject below just exposes it to GTK."""
     name: str
     hitpoints: int
     max_hitpoints: int
@@ -29,13 +23,9 @@ class Creature:
 
 
 class CreatureObject(GObject.Object):
-    """GObject wrapper around a Creature dataclass instance.
-
-    Gio.ListStore (and therefore Gtk.SortListModel / Gtk.ColumnView) can
-    only hold GObject-derived items, so this adapts the plain dataclass
-    into something GTK's model/view machinery can bind to and be notified
-    about.
-    """
+    """GObject wrapper around a Creature dataclass instance, since
+    Gio.ListStore/Gtk.SortListModel/Gtk.ColumnView only accept
+    GObject-derived items."""
 
     __gtype_name__ = "CreatureObject"
 
@@ -85,9 +75,9 @@ class CreatureObject(GObject.Object):
 
 
 class InitiativeDatabase:
-    """Composite in-memory database of creatures, auto-sorted by
-    initiative_roll (descending) via a Gtk.SortListModel, with the
-    current turn tracked by reference."""
+    """In-memory database of creatures, auto-sorted by initiative_roll
+    (descending) via a Gtk.SortListModel, with the current turn tracked
+    by reference."""
 
     def __init__(self):
         self.store = Gio.ListStore(item_type=CreatureObject)
@@ -98,7 +88,6 @@ class InitiativeDatabase:
 
     @staticmethod
     def _compare(a, b, user_data=None):
-        """Gtk.CustomSorter comparison: descending by initiative_roll."""
         if a.initiative_roll > b.initiative_roll:
             return -1
         if a.initiative_roll < b.initiative_roll:
@@ -106,7 +95,6 @@ class InitiativeDatabase:
         return 0
 
     def _sorted_list(self):
-        """Returns the current turn order as a plain Python list."""
         n = self.sorted_model.get_n_items()
         return [self.sorted_model.get_item(i) for i in range(n)]
 
@@ -119,20 +107,15 @@ class InitiativeDatabase:
         return None
 
     def resort(self):
-        """Call after a mutation that could change turn order
-        (i.e. any edit to initiative_roll, or an add)."""
+        """Call after a mutation that could change turn order (any
+        edit to initiative_roll, or an add)."""
         self.sorter.changed(Gtk.SorterChange.DIFFERENT)
 
     def add_creature(self, creature: Creature) -> CreatureObject:
-        """Adds a new creature to the database.
-
-        A new arrival's higher roll only gets to jump the queue if
-        whoever currently has the turn was already at the very top of
-        the order -- i.e. combat hasn't meaningfully started yet, or
-        it's genuinely the top roller's turn right now. Mid-round,
-        adding creatures shouldn't disrupt whoever's turn it already
-        is, even if the new arrival rolled higher.
-        """
+        """Adds a new creature. A new arrival's higher roll only jumps
+        the queue if whoever currently has the turn was already at the
+        top of the order -- mid-round, adding creatures shouldn't
+        disrupt whoever's turn it already is."""
         current_was_top = self.current_creature is not None and self._current_index() == 0
 
         obj = CreatureObject(creature)
@@ -146,9 +129,8 @@ class InitiativeDatabase:
         return obj
 
     def set_current_creature(self, creature_obj: CreatureObject):
-        """Manually override whose turn it is -- distinct from
-        next_turn(), which advances turn order rather than jumping to a
-        specific creature."""
+        """Manually overrides whose turn it is (distinct from
+        next_turn(), which advances turn order)."""
         self.current_creature = creature_obj
 
     def clear(self):
@@ -168,9 +150,8 @@ class InitiativeDatabase:
             self.current_creature = items[0] if items else None
 
     def next_turn(self):
-        """Advances current_creature to the next creature in turn
-        order, wrapping back to the top and incrementing round_number
-        when a full cycle completes."""
+        """Advances to the next creature in turn order, wrapping to the
+        top and incrementing round_number when a full cycle completes."""
         items = self._sorted_list()
         if not items:
             self.current_creature = None
@@ -181,8 +162,6 @@ class InitiativeDatabase:
         else:
             new_idx = (idx + 1) % len(items)
             if new_idx == 0:
-                # Wrapped back to the top of the turn order -- a full
-                # round has elapsed.
                 self.round_number += 1
             self.current_creature = items[new_idx]
 
@@ -194,17 +173,10 @@ class InitiativeDatabase:
         idx = self._current_index()
         if idx is None:
             idx = 0
-        # Current creature first, then the rest in the order their
-        # turns would come up, wrapping back around.
         ordered = items[idx:] + items[:idx] if items else []
 
         with open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            # The round number is tacked onto the header row as a trailing
-            # cell, since that row is otherwise write-only from our own
-            # perspective -- import always skips row 0 entirely rather
-            # than reading its cell values, so there's no established
-            # column meaning there to collide with.
             writer.writerow(CSV_HEADERS + [str(self.round_number)])
             for obj in ordered:
                 writer.writerow([
@@ -216,10 +188,10 @@ class InitiativeDatabase:
                 ])
 
     def import_csv(self, path):
-        """Replaces the entire creature list with the contents of path.
-        The header row is skipped for creature data but its trailing
-        cell (if present) is read back as the round number. Malformed
-        data rows (fewer than 5 columns) are silently skipped."""
+        """Replaces the entire creature list with the contents of
+        path. The header row is skipped for creature data but its
+        trailing cell (if present) is read back as the round number.
+        Malformed data rows (fewer than 5 columns) are skipped."""
         with open(path, "r", newline="", encoding="utf-8") as f:
             rows = list(csv.reader(f))
 
@@ -243,13 +215,11 @@ class InitiativeDatabase:
         for obj in new_objects:
             self.store.append(obj)
 
-        # First row in the file is, by our export convention, whoever's
-        # turn it currently is.
+        # First row is, by our export convention, whoever's turn it is.
         self.current_creature = new_objects[0] if new_objects else None
 
-        # Round number, if present, is a trailing cell on the header row.
-        # Files exported before this feature existed won't have it --
-        # default back to round 1 rather than failing the import.
+        # Round number, if present, is a trailing cell on the header
+        # row -- files from before this feature existed won't have it.
         round_number = 1
         if len(header_row) > len(CSV_HEADERS):
             try:

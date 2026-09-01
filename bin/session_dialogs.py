@@ -1,8 +1,5 @@
 """Modal dialog for confirming unsaved changes, built from its .ui
-file. A plain function, like the ones in creature_dialogs.py -- takes
-the parent window and callbacks rather than needing to know about
-AppWindow internals.
-"""
+file."""
 
 from gi.repository import Gtk
 
@@ -10,16 +7,12 @@ from ui_paths import UNSAVED_CHANGES_UI_PATH
 
 
 def open_unsaved_changes_dialog(parent, on_export, on_discard, message=None):
-    """on_export() is called if the user chooses to export first -- the
-    caller is responsible for proceeding (closing, importing, etc.)
-    afterward once the export actually succeeds. on_discard() is called
-    if the user chooses to proceed without exporting. Neither is called
-    on Cancel.
-
-    message overrides the default "...before closing?" wording -- this
-    dialog is reused for both closing the app and starting an import,
-    which have different consequences worth describing accurately.
-    """
+    """on_export() runs if the user chooses to export first -- the
+    caller proceeds (closing, importing, etc.) once the export
+    actually succeeds. on_discard() runs if the user proceeds without
+    exporting. Neither runs on Cancel. message overrides the default
+    wording, since this dialog is reused for both closing and
+    importing."""
     builder = Gtk.Builder()
     builder.add_from_file(UNSAVED_CHANGES_UI_PATH)
 

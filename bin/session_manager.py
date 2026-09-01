@@ -3,13 +3,8 @@ any) the in-memory state is synced with, whether there are unexported
 changes, and the flows built around that -- the unsaved-changes prompt
 (shared by closing and importing), remembering the last file across
 launches, and the "export first, then do X" sequencing used by both.
-
-Deliberately separate from AppWindow: this is file-persistence policy,
-not table/dialog UI construction. It still needs a reference to the
-window (as transient_for for its dialogs, and to call show_status/
-set_title/destroy), but doesn't build or own any of the window's main
-widgets.
-"""
+Deliberately separate from AppWindow, which owns table/dialog UI
+construction rather than file-persistence policy."""
 
 import csv
 from pathlib import Path
@@ -41,15 +36,11 @@ class SessionManager:
 
         self.last_file_path = None
         self.dirty = False
-        # Captured once, right after the window's "title" property is
-        # set, so the dirty-indicator ("*") logic below has a single
-        # source of truth rather than duplicating the literal title
-        # string here and in application.py.
         self.base_title = window.get_title() or "Simple Initiative Tracker"
-        # Set to a no-argument callable when an export is happening as a
-        # precursor to some other action (closing the window, starting
-        # an import) rather than a plain toolbar export -- invoked once
-        # by _export_to_path after a successful export, then cleared.
+        # Set to a no-argument callable when an export is a precursor to
+        # some other action (closing, starting an import) rather than a
+        # plain toolbar export; invoked once by _export_to_path after a
+        # successful export, then cleared.
         self._after_export_callback = None
 
         self.file_dialog = self._load_file_dialog()

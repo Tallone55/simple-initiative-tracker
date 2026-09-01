@@ -19,3 +19,8 @@ Define "Simple mode" (the program as defined so far) and "5e combat mode"
 Switch modes through a popover dropdown (like gnome-calculator modes) 
 5e combat mode shows core stats (dex, str, con, wis, int, cha), and skill + saving throw modifiers + to-hit bonuses selected during creature creation for reference
     Auto-resolving combat, despite being *very cool* as an idea, would require a full set of 5e rules to account for reactions and other funky ability logic that would require a lot of definition, and copious options for override unless confidently complete. Not worth it for now.
+
+Packaging and distribution:
+Add rudimentary support for other Linux desktop environments (GNOME and KDE at a minimum, dark mode outside of cinnamon)
+Add rudimentary support for other operating systems (stock GTK support on Windows and macOS with dark mode) as a portable executable
+Ship portable executable for Linux: Distribute as .tar.gz and install to selected folder. That means the only files it should touch while running are at the temp path (this is true for cross-platform portable execs too) and save files (csv). If it's good enough for Blender, it's good enough for me.

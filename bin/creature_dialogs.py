@@ -61,14 +61,10 @@ def open_edit_dialog(parent, creature_obj, field_name, display_name, on_committe
 
 def open_edit_hitpoints_dialog(parent, creature_obj, on_committed):
     """Dedicated hitpoints editor: current and max HP as plain text
-    entries, each pre-filled with its current value and evaluated as an
-    arithmetic expression on Update (e.g. edit "23" to "23+5" to heal 5).
-
-    on_committed(old_hitpoints, old_max, new_hitpoints, new_max) is
-    called after a successful update, once the dialog has already been
-    destroyed -- both value pairs are passed so the caller can build a
-    single undo/redo command covering both fields together.
-    """
+    entries, each evaluated as an arithmetic expression on Update (e.g.
+    edit "23" to "23+5" to heal 5). on_committed(old_hitpoints, old_max,
+    new_hitpoints, new_max) is called after a successful update, once
+    the dialog has already been destroyed."""
     builder = Gtk.Builder()
     builder.add_from_file(EDIT_HITPOINTS_UI_PATH)
 
