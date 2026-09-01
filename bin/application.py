@@ -4,22 +4,10 @@ from window import AppWindow
 from styling import install_css
 from keybinds import KEYBINDS
 from app_menus import build_menubar
-from theme_sync import sync_theme, reapply as reapply_theme
-import adwaita
-
-# Adw.Application when libadwaita is available -- this is what
-# actually triggers libadwaita's own native theme integration
-# (including Linux Mint's patched build reading real system theme
-# colors directly, see theme_sync.py's module docstring), rather than
-# theme_sync.py's own approximated fallback CSS, which is used only
-# when libadwaita genuinely isn't installed. Every other widget in
-# this app (Gtk.HeaderBar, Gtk.ColumnView, etc.) stays exactly as-is
-# either way -- libadwaita's stylesheet applies through shared GTK CSS
-# node names, not by requiring Adw-specific widget classes.
-_ApplicationBase = adwaita.Adw.Application if adwaita.AVAILABLE else Gtk.Application
+from cinnamon_theme import sync_theme, reapply as reapply_theme
 
 
-class Application(_ApplicationBase):
+class Application(Gtk.Application):
     def __init__(self, *args, **kwargs):
         # SIT: Simple Initiative Tracker
         super().__init__(*args, application_id="net.mystive.sit", **kwargs)
@@ -53,10 +41,10 @@ class Application(_ApplicationBase):
         # not two that could drift apart.
         self.set_menubar(build_menubar())
 
-        # See theme_sync.py -- detects and applies the desktop's
-        # dark/light preference across DEs, including a fallback dark
-        # palette for cases where the system's own theme has nothing
-        # GTK4 can actually load.
+        # See cinnamon_theme.py -- imports Mint Cinnamon's actual theme
+        # (colors, and eventually window-control images) directly,
+        # rather than relying on libadwaita to apply it for us. Scoped
+        # deliberately to Cinnamon; not a general cross-desktop system.
         self._theme_settings = sync_theme()
 
         install_css()
@@ -68,10 +56,10 @@ class Application(_ApplicationBase):
             self.window = AppWindow(application=self, title="Simple Initiative Tracker")
         self.window.present()
 
-        # Re-asserts the already-known dark/light preference now that
-        # the window (and its headerbar's window-control buttons)
-        # actually exist -- see theme_sync.reapply()'s docstring for
-        # why this second application is needed at all.
+        # Re-asserts the already-known theme state now that the window
+        # (and its headerbar's window-control buttons) actually exist
+        # -- see cinnamon_theme.reapply()'s docstring for why this
+        # second application is needed at all.
         reapply_theme()
 
     def on_quit(self, action, param):

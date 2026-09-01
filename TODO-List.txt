@@ -1,3 +1,6 @@
 System for Temp HP which is listed separately in the hitpoint field
 Add a field for creature status supporting an arbitrary string
-Center the remove buttons in their column
+Center the 'remove' buttons in their column
+Titlebar buttons fade between states (hover, etc) when they should switch instantly when moused over or going inactive.
+Vertical separator between hamburger menu and titlebar controls
+Include theme directories ~/.themes/ or import path to applied theme directly. It seems like we should be using someone eles's theme applicator instead of building this ourselves.

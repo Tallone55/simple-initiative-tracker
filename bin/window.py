@@ -123,6 +123,16 @@ class AppWindow(Gtk.ApplicationWindow):
         Export As -- see app_menus.py. The traditional File menu bar
         (application.py's set_menubar) carries the same four actions
         for platforms where this headerbar convention isn't native.
+
+        Plain Gtk.HeaderBar -- an earlier version swapped this for
+        Adw.HeaderBar specifically to try to fix window-control
+        (minimize/maximize/close) theming, but that didn't resolve it,
+        and GTK Inspector comparison against a genuinely GTK3 reference
+        app showed the underlying assumption (that gnome-calculator
+        demonstrates working libadwaita theming on Mint) didn't hold up
+        -- see cinnamon_theme.py for the actual fix, which replaces the
+        window-control images directly rather than relying on either
+        HeaderBar implementation to theme them correctly on its own.
         """
         headerbar = Gtk.HeaderBar()
 
