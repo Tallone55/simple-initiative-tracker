@@ -74,11 +74,14 @@ def _substitute_dice_rolls(text: str) -> str:
 
 def evaluate_int_expression(text: str) -> int:
     """Evaluates text as an integer or arithmetic/dice expression.
-    Raises ExpressionError for invalid syntax, non-integer results, or
+    Blank/whitespace-only text evaluates to 0, rather than raising --
+    callers apply their own rules (e.g. clamping to a minimum) after
+    the fact, the same as for any other evaluated value. Raises
+    ExpressionError for invalid syntax, non-integer results, or
     results outside GObject's gint range -- never any other exception."""
     text = text.strip()
     if not text:
-        raise ExpressionError("Value cannot be empty.")
+        return 0
 
     text = _substitute_dice_rolls(text)
 

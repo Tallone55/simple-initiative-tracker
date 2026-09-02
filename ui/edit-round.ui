@@ -1,0 +1,58 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <object class="GtkWindow" id="edit_round_window">
+    <property name="modal">true</property>
+    <property name="resizable">false</property>
+    <property name="default-width">260</property>
+    <property name="title">Set Round</property>
+    <child>
+      <object class="GtkBox" id="edit_round_box">
+        <property name="orientation">vertical</property>
+        <property name="spacing">10</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">12</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <child>
+          <object class="GtkEntry" id="round_entry">
+            <property name="placeholder-text">Round number</property>
+            <property name="input-purpose">number</property>
+            <property name="activates-default">true</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel" id="error_label">
+            <property name="visible">false</property>
+            <property name="wrap">true</property>
+            <property name="xalign">0</property>
+            <style>
+              <class name="error"/>
+            </style>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox" id="button_box">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">6</property>
+            <property name="halign">end</property>
+            <child>
+              <object class="GtkButton" id="cancel_button">
+                <property name="label">Cancel</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="confirm_button">
+                <property name="label">Confirm</property>
+                <property name="receives-default">true</property>
+                <style>
+                  <class name="suggested-action"/>
+                </style>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>

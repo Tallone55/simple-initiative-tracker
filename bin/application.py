@@ -36,10 +36,16 @@ class Application(Gtk.Application):
         # hamburger menu (see window.py) isn't the native convention.
         self.set_menubar(build_menubar())
 
+        # Static, theme-independent CSS (including the GTK-default
+        # highlight-color fallback) is installed first, so that
+        # cinnamon_theme's provider -- added after, by sync_theme()
+        # below -- wins tiebreaks against it wherever it has an
+        # actual theme-resolved value to offer instead (e.g. the
+        # current-turn row highlight; see cinnamon_theme._apply_theme).
+        install_css()
+
         # Imports the Cinnamon desktop's active theme (see cinnamon_theme.py).
         self._theme_settings = sync_theme()
-
-        install_css()
 
     def do_activate(self):
         """Runs on every activation (app launch, or re-invocation while

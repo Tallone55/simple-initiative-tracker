@@ -2,6 +2,7 @@ from gi.repository import Gio, Gtk
 
 from models import InitiativeDatabase
 from creature_dialogs import open_edit_dialog, open_edit_hitpoints_dialog, open_add_creature_dialog
+from round_dialog import open_edit_round_dialog
 from column_factory import CreatureColumnFactory
 from undo_manager import UndoManager
 from session_manager import SessionManager
@@ -45,9 +46,17 @@ class AppWindow(Gtk.ApplicationWindow):
         )
         self.set_child(root)
 
-        self.round_label = Gtk.Label(label="Round 1", xalign=0.5, hexpand=True)
-        self.round_label.add_css_class("round-counter")
-        root.append(self.round_label)
+        # The round counter itself is the edit trigger -- a single
+        # button reading "Round N", rather than a separate label plus
+        # icon button -- styled flat in styling.py so it still reads
+        # as plain centered text at rest.
+        self.round_button = Gtk.Button(label="Round 1")
+        self.round_button.add_css_class("round-counter")
+        self.round_button.set_has_frame(False)
+        self.round_button.set_halign(Gtk.Align.CENTER)
+        self.round_button.set_tooltip_text("Set Round")
+        self.round_button.connect("clicked", self.on_edit_round_clicked)
+        root.append(self.round_button)
         self.update_round_label()
 
         # Native row selection gives full-row highlighting for the
@@ -144,6 +153,16 @@ class AppWindow(Gtk.ApplicationWindow):
         # instead (see __init__), since the two headerbar buttons above
         # left no good place for a centered title widget anyway.
 
+        # Packed before menu_button, so it lands between the headerbar's
+        # other end-packed content and the hamburger menu -- on the
+        # opposite side from the window's own native title-bar controls
+        # (minimize/maximize/close), which GtkHeaderBar renders at the
+        # true outer edge and aren't pack_end() children themselves.
+        titlebar_separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        titlebar_separator.set_margin_start(6)
+        titlebar_separator.set_margin_end(6)
+        headerbar.pack_end(titlebar_separator)
+
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
         menu_button.set_menu_model(build_hamburger_menu())
@@ -190,9 +209,21 @@ class AppWindow(Gtk.ApplicationWindow):
                 return
 
     def update_round_label(self):
-        """Refreshes the centered round-counter label to match the
+        """Refreshes the round-counter button's label to match the
         database's current round_number."""
-        self.round_label.set_label(f"Round {self.initiative_database.round_number}")
+        self.round_button.set_label(f"Round {self.initiative_database.round_number}")
+
+    def on_edit_round_clicked(self, button):
+        """Opens the Set Round dialog. Not routed through
+        creature_commands/undo_manager -- like Next Turn and turn
+        activation, manually setting the round is out of scope for
+        the undo history."""
+        open_edit_round_dialog(self, self.initiative_database.round_number, self._handle_round_committed)
+
+    def _handle_round_committed(self, new_round):
+        self.initiative_database.round_number = new_round
+        self.update_round_label()
+        self.session.mark_dirty()
 
     def show_status(self, message):
         """Displays a one-line status message below the creature table
@@ -230,11 +261,11 @@ class AppWindow(Gtk.ApplicationWindow):
 
     def _handle_hitpoints_edit_requested(self, creature_obj):
         """Opens the dedicated hitpoints dialog; the undo/redo command
-        (covering current and max HP together) is built in
+        (covering current, max, and temporary HP together) is built in
         creature_commands.py."""
-        def on_committed(old_hp, old_max, new_hp, new_max):
+        def on_committed(old_hp, old_max, old_temp, new_hp, new_max, new_temp):
             creature_commands.edit_hitpoints(
-                self.undo_manager, creature_obj, old_hp, old_max, new_hp, new_max
+                self.undo_manager, creature_obj, old_hp, old_max, old_temp, new_hp, new_max, new_temp
             )
             self.after_database_mutation(resort=False)
 

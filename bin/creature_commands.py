@@ -64,15 +64,17 @@ def edit_field(undo_manager, creature_obj, field_name, display_name, old_value, 
     undo_manager.push(Command(undo=undo, redo=redo))
 
 
-def edit_hitpoints(undo_manager, creature_obj, old_hitpoints, old_max, new_hitpoints, new_max):
-    """Registers a single undo/redo command covering current and max
-    HP together, since they're edited as one logical action."""
+def edit_hitpoints(undo_manager, creature_obj, old_hitpoints, old_max, old_temp, new_hitpoints, new_max, new_temp):
+    """Registers a single undo/redo command covering current, max, and
+    temporary HP together, since they're edited as one logical action."""
     def undo():
         creature_obj.max_hitpoints = old_max
         creature_obj.hitpoints = old_hitpoints
+        creature_obj.temp_hitpoints = old_temp
 
     def redo():
         creature_obj.max_hitpoints = new_max
         creature_obj.hitpoints = new_hitpoints
+        creature_obj.temp_hitpoints = new_temp
 
     undo_manager.push(Command(undo=undo, redo=redo))

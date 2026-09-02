@@ -31,10 +31,10 @@ class CreatureColumnFactory:
         on_remove_requested,
     ):
         """on_edit_requested(creature_obj, field_name, display_name) is
-        called on a click on the Creature/Armor Class/Initiative Roll
-        cell. on_hitpoints_edit_requested(creature_obj) is called on
-        the Hitpoints cell (routed separately since it opens a
-        dedicated current/max HP dialog). on_remove_requested(creature_obj)
+        called on a click on the Creature/Armor Class/Initiative
+        Roll/Status cell. on_hitpoints_edit_requested(creature_obj) is
+        called on the Hitpoints cell (routed separately since it opens
+        a dedicated current/max/temp HP dialog). on_remove_requested(creature_obj)
         is called when a row's remove button is clicked."""
         self.on_edit_requested = on_edit_requested
         self.on_hitpoints_edit_requested = on_hitpoints_edit_requested
@@ -46,15 +46,15 @@ class CreatureColumnFactory:
                 getter=lambda c: c.name,
                 notify_props=["name"],
                 on_click=lambda c: self.on_edit_requested(c, "name", "Creature"),
-                expand=True,
                 min_width=140,
             ),
             self._build_field_column(
                 title="Hitpoints",
                 getter=self._format_hitpoints,
-                notify_props=["hitpoints", "max-hitpoints"],
+                notify_props=["hitpoints", "max-hitpoints", "temp-hitpoints"],
                 on_click=lambda c: self.on_hitpoints_edit_requested(c),
-                min_width=90,
+                min_width=140,
+                zero_hp_highlight=True,
             ),
             self._build_field_column(
                 title="Armor Class",
@@ -70,23 +70,41 @@ class CreatureColumnFactory:
                 on_click=lambda c: self.on_edit_requested(c, "initiative_roll", "Initiative Roll"),
                 min_width=120,
             ),
+            self._build_field_column(
+                title="Status",
+                getter=lambda c: c.status,
+                notify_props=["status"],
+                on_click=lambda c: self.on_edit_requested(c, "status", "Status"),
+                expand=True,
+                min_width=100,
+            ),
             self._build_remove_column(min_width=48),
         ]
 
     @staticmethod
     def _format_hitpoints(creature_obj):
-        """Display text for the Hitpoints cell: "current/max"."""
-        return f"{creature_obj.hitpoints}/{creature_obj.max_hitpoints}"
+        """Display text for the Hitpoints cell: "current/max", with a
+        "+ N temp" suffix appended whenever there's any temporary HP
+        (D&D-style temp HP, tracked separately rather than added into
+        current/max)."""
+        base = f"{creature_obj.hitpoints}/{creature_obj.max_hitpoints}"
+        if creature_obj.temp_hitpoints > 0:
+            return f"{base} + {creature_obj.temp_hitpoints} temp"
+        return base
 
     # -- generic text-cell column ------------------------------------------------
 
-    def _build_field_column(self, title, getter, notify_props, on_click, expand=False, min_width=80):
+    def _build_field_column(self, title, getter, notify_props, on_click, expand=False, min_width=80, zero_hp_highlight=False):
         """Builds one resizable, ellipsizing text column. getter(creature_obj)
         -> str produces the cell's display text; notify_props (dash-case
         GObject property names) is which CreatureObject properties
         should trigger a refresh via "notify::"; on_click(creature_obj)
         fires on a cell click; expand controls whether this column
-        soaks up extra ColumnView width."""
+        soaks up extra ColumnView width. zero_hp_highlight marks the
+        cell with the "zero-hp" CSS class (styling.py) whenever the
+        creature is at 0 hitpoints -- only meaningful for the
+        Hitpoints column, which already includes "hitpoints" in
+        notify_props."""
         factory = Gtk.SignalListItemFactory()
 
         def on_setup(factory, list_item):
@@ -115,6 +133,11 @@ class CreatureColumnFactory:
 
             def refresh(*_args):
                 label.set_label(getter(creature_obj))
+                if zero_hp_highlight:
+                    if creature_obj.hitpoints == 0:
+                        label.add_css_class("zero-hp")
+                    else:
+                        label.remove_css_class("zero-hp")
             refresh()
 
             list_item.notify_handler_ids = [
@@ -181,7 +204,12 @@ class CreatureColumnFactory:
             button.set_tooltip_text("Remove")
             button.add_css_class("flat")
             button.set_overflow(Gtk.Overflow.HIDDEN)
-            button.set_size_request(min_width, -1)
+            # Centered rather than forced to fill the full column width
+            # (which left it flush against one edge) -- the column's
+            # own fixed_width already gives the cell its width, so the
+            # button just needs to center within it.
+            button.set_halign(Gtk.Align.CENTER)
+            button.set_valign(Gtk.Align.CENTER)
             list_item.set_child(button)
             list_item.click_handler_id = None
 

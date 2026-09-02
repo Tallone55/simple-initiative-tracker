@@ -8,7 +8,10 @@ from dataclasses import dataclass
 
 from gi.repository import Gio, Gtk, GObject
 
-CSV_HEADERS = ["Creature", "Hitpoints", "Max Hitpoints", "Armor Class", "Initiative Roll"]
+CSV_HEADERS = [
+    "Creature", "Hitpoints", "Max Hitpoints", "Armor Class", "Initiative Roll",
+    "Temp Hitpoints", "Status",
+]
 
 
 @dataclass
@@ -20,6 +23,8 @@ class Creature:
     max_hitpoints: int
     armor_class: int
     initiative_roll: int
+    temp_hitpoints: int = 0
+    status: str = ""
 
 
 class CreatureObject(GObject.Object):
@@ -72,6 +77,22 @@ class CreatureObject(GObject.Object):
     @initiative_roll.setter
     def initiative_roll(self, value):
         self._creature.initiative_roll = value
+
+    @GObject.Property(type=int)
+    def temp_hitpoints(self):
+        return self._creature.temp_hitpoints
+
+    @temp_hitpoints.setter
+    def temp_hitpoints(self, value):
+        self._creature.temp_hitpoints = value
+
+    @GObject.Property(type=str)
+    def status(self):
+        return self._creature.status
+
+    @status.setter
+    def status(self, value):
+        self._creature.status = value
 
 
 class InitiativeDatabase:
@@ -185,13 +206,18 @@ class InitiativeDatabase:
                     obj.max_hitpoints,
                     obj.armor_class,
                     obj.initiative_roll,
+                    obj.temp_hitpoints,
+                    obj.status,
                 ])
 
     def import_csv(self, path):
         """Replaces the entire creature list with the contents of
         path. The header row is skipped for creature data but its
         trailing cell (if present) is read back as the round number.
-        Malformed data rows (fewer than 5 columns) are skipped."""
+        Malformed data rows (fewer than 5 columns) are skipped.
+        Temp Hitpoints (column 6) and Status (column 7) are optional,
+        for compatibility with files exported before those fields
+        existed -- missing entirely defaults to 0 and "" respectively."""
         with open(path, "r", newline="", encoding="utf-8") as f:
             rows = list(csv.reader(f))
 
@@ -208,6 +234,8 @@ class InitiativeDatabase:
                 max_hitpoints=int(row[2]),
                 armor_class=int(row[3]),
                 initiative_roll=int(row[4]),
+                temp_hitpoints=int(row[5]) if len(row) > 5 and row[5] else 0,
+                status=row[6] if len(row) > 6 else "",
             )
             new_objects.append(CreatureObject(creature))
 
@@ -220,10 +248,14 @@ class InitiativeDatabase:
 
         # Round number, if present, is a trailing cell on the header
         # row -- files from before this feature existed won't have it.
+        # Read from the last header cell (rather than an index derived
+        # from CSV_HEADERS' current length) so files exported under an
+        # older, shorter CSV_HEADERS still have their round number
+        # detected correctly.
         round_number = 1
-        if len(header_row) > len(CSV_HEADERS):
+        if len(header_row) > 5:
             try:
-                round_number = int(header_row[len(CSV_HEADERS)])
+                round_number = int(header_row[-1])
             except ValueError:
                 round_number = 1
         self.round_number = round_number

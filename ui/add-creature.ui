@@ -33,8 +33,13 @@
         </child>
         <child>
           <object class="GtkEntry" id="init_entry">
-            <property name="placeholder-text">Initiative Roll (blank = random 1-20)</property>
+            <property name="placeholder-text">Initiative Roll (blank = roll 1d20)</property>
             <property name="input-purpose">number</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkEntry" id="status_entry">
+            <property name="placeholder-text">Status (optional)</property>
           </object>
         </child>
         <child>
