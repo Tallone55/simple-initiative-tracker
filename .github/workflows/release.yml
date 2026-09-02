@@ -9,6 +9,14 @@
 # release.yml`), or by pushing a tag starting with "v" (e.g. v1.0.0).
 # All four artifacts are attached to the workflow run either way; a
 # tag push additionally publishes them to a GitHub Release.
+#
+# actions/checkout, actions/upload-artifact, and actions/download-
+# artifact are pinned to the specific major version each one actually
+# switched its *default* runtime to Node 24 -- not just the first
+# version with "preliminary" Node 24 support while still defaulting
+# to the now-deprecated Node 20 (checkout@v5, upload-artifact@v6,
+# download-artifact@v7 respectively). Don't downgrade these to match
+# some other pin elsewhere without checking that first.
 
 name: Build release archives
 
@@ -23,7 +31,7 @@ jobs:
     name: Linux (.deb + .tar.gz)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install GTK4 + PyGObject build dependencies
         run: |
@@ -45,7 +53,7 @@ jobs:
       - name: Build Linux portable .tar.gz
         run: ./packaging/build_linux_portable.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: linux-archives
           path: |
@@ -59,7 +67,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -79,7 +87,7 @@ jobs:
       - name: Build .exe
         run: ./packaging/build_windows.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: windows-archive
           path: |
@@ -90,7 +98,7 @@ jobs:
     name: macOS (.app)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install GTK4 + PyGObject build dependencies
         # GitHub's macOS runner images ship with aws/tap already
@@ -118,7 +126,7 @@ jobs:
           cd packaging/dist
           zip -rq "Simple Initiative Tracker.app.zip" "Simple Initiative Tracker.app"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: macos-archive
           path: packaging/dist/*.app.zip
@@ -129,7 +137,7 @@ jobs:
     needs: [deb-and-portable, windows, macos]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: artifacts
           merge-multiple: true

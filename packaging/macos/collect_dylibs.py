@@ -34,8 +34,21 @@ import sys
 from pathlib import Path
 
 _DENYLIST_PATTERNS = [
-    r"^/usr/lib/libSystem",
-    r"^/usr/lib/lib[a-zA-Z0-9_]+\.dylib$",  # the rest of /usr/lib's own libc/libc++/etc. family
+    # Everything under /usr/lib is core-OS-provided on macOS -- a
+    # blanket prefix match, not an attempt to enumerate individual
+    # library name patterns: a previous, narrower pattern here
+    # (matching only unversioned names like "libfoo.dylib") missed
+    # every *versioned* one, e.g. "libiconv.2.dylib" or
+    # "libbz2.1.0.dylib" -- version segments contain a "." the
+    # character class didn't allow -- and those are the overwhelming
+    # majority of real /usr/lib dependency names in practice. Modern
+    # macOS (Big Sur+) doesn't even keep most of these as real files
+    # on disk any more (only inside the single "dyld shared cache"),
+    # so a missed match here doesn't just wrongly attempt to bundle a
+    # system library -- it fails to find the file at all and prints a
+    # spurious "could not resolve" warning for something completely
+    # normal and expected.
+    r"^/usr/lib/",
     r"^/System/Library/Frameworks/",
     r"^/System/Library/PrivateFrameworks/",
 ]
@@ -44,6 +57,12 @@ _DENYLIST_RE = re.compile("(" + "|".join(_DENYLIST_PATTERNS) + ")")
 # otool -L output lines look like:
 #     /opt/homebrew/opt/gtk4/lib/libgtk-4.1.dylib (compatibility version 1.0.0, current version 1.0.0)
 _OTOOL_LINE_RE = re.compile(r"^\s*(\S+)\s+\(compatibility version")
+
+# otool -l's "cmd LC_RPATH" segments look like:
+#     cmd LC_RPATH
+#     ...
+#         path /opt/homebrew/opt/librsvg/lib (offset 12)
+_LC_RPATH_RE = re.compile(r"^\s*path\s+(\S+)\s+\(offset", re.MULTILINE)
 
 
 def _dependencies(path):
@@ -70,17 +89,32 @@ def _dependencies(path):
     return deps
 
 
-def _resolve(name, loader_path):
+def _own_rpaths(path):
+    """The LC_RPATH search-path entries actually embedded in `path`'s
+    own Mach-O load commands (via `otool -l`) -- what @rpath/ actually
+    means for this specific file, at the linker's own word for it,
+    rather than assumed. A Homebrew-built dylib commonly references a
+    sibling formula's own lib/ directory this way (e.g. gdk-pixbuf's
+    SVG loader plugin depends on @rpath/librsvg-2.2.dylib, with an
+    LC_RPATH pointing at librsvg's own opt/ prefix, not gdk-pixbuf's) --
+    resolving @rpath/ against only the depending file's own directory,
+    as an earlier version of this function did, misses exactly that
+    case and silently ships an app with a broken SVG loader plugin."""
+    result = subprocess.run(["otool", "-l", str(path)], capture_output=True, text=True)
+    return [Path(m.group(1)) for m in _LC_RPATH_RE.finditer(result.stdout)]
+
+
+def _resolve(name, loader_path, rpaths):
     """An @rpath/@loader_path/@executable_path-relative dependency
-    name resolved against the resolving binary's own directory (the
-    only rpath entry that matters here, since these are all
-    Homebrew-built dylibs referencing sibling paths within the same
-    prefix) -- absolute paths pass through unchanged."""
+    name resolved against the resolving binary's own directory and
+    its own real LC_RPATH entries (whichever actually contains the
+    file) -- absolute paths pass through unchanged."""
     if name.startswith(("@rpath/", "@loader_path/", "@executable_path/")):
         basename = name.split("/")[-1]
-        candidate = loader_path / basename
-        if candidate.is_file():
-            return candidate
+        for directory in [loader_path, *rpaths]:
+            candidate = directory / basename
+            if candidate.is_file():
+                return candidate
         return None
     return Path(name)
 
@@ -99,10 +133,11 @@ def collect_closure(seeds):
             continue
         seen.add(current)
 
+        rpaths = _own_rpaths(current)
         for name in _dependencies(current):
             if _DENYLIST_RE.match(name):
                 continue
-            resolved = _resolve(name, current.parent)
+            resolved = _resolve(name, current.parent, rpaths)
             if resolved is None or not resolved.is_file():
                 print(f"warning: could not resolve {name} (depended on by {current.name})", file=sys.stderr)
                 continue
@@ -135,6 +170,16 @@ def _rewrite_install_names(out_dir, collected_names):
                 ["install_name_tool", "-change", old_ref, f"@rpath/{basename}", str(dylib)],
                 capture_output=True,  # a given dylib often doesn't reference every other one; errors expected
             )
+
+    # install_name_tool invalidates whatever ad-hoc signature Homebrew
+    # originally applied (required for arm64 dylibs to load at all) --
+    # re-signed here with a fresh ad-hoc signature (still no real
+    # certificate involved, just "-", the same thing Homebrew itself
+    # used) rather than left in an invalidated state, matching what
+    # dylibbundler/macdeployqt-style bundlers do after the same kind
+    # of rewrite.
+    for dylib in dylib_paths:
+        subprocess.run(["codesign", "--force", "--sign", "-", str(dylib)], capture_output=True)
 
 
 def main():
