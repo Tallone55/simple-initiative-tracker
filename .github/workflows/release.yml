@@ -60,8 +60,6 @@ jobs:
         shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
-        with:
-          shell: pwsh
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -95,7 +93,19 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install GTK4 + PyGObject build dependencies
-        run: brew install gtk4 libadwaita pygobject3 gobject-introspection librsvg
+        # GitHub's macOS runner images ship with aws/tap already
+        # tapped, which Homebrew's newer tap-trust enforcement then
+        # refuses to process during the implicit "brew update" that
+        # "brew install" runs first -- untapping it here (harmless;
+        # this project never uses anything from it) avoids that
+        # rather than trying to individually trust it. Disabling the
+        # auto-update outright is the more direct fix for the same
+        # root cause (that implicit update walking every tap on the
+        # runner, not just the ones this build actually needs) and
+        # also makes the step faster/more deterministic.
+        run: |
+          brew untap aws/tap || true
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install gtk4 libadwaita pygobject3 gobject-introspection librsvg
 
       - name: Build .app
         run: ./packaging/build_macos.sh
