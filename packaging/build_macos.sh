@@ -39,6 +39,29 @@ MACOS_DIR="$SCRIPT_DIR/macos"
 source "$COMMON_DIR/app_metadata.sh"
 source "$COMMON_DIR/version.sh"
 
+# Used for every recursive directory copy below instead of cp -a or
+# ditto -- both, in turn, hit a "File exists" error partway through a
+# Homebrew-sourced tree (first the Python.framework copy with cp -a,
+# then again one level deeper with ditto, then again after resolving
+# one of the two paths involved via realpath()). Homebrew's install
+# layout turned out to alias the same real directory under more than
+# one apparent path in more than one place, not just the one place
+# each previous fix addressed -- so rather than continuing to
+# canonicalize individual paths one discovery at a time, every
+# symlink encountered during these copies is dereferenced into a real
+# copy of its target's actual content (symlinks=False), which removes
+# the entire class of bug at once: there's no longer any alias chain
+# left that could cause the same real directory to be visited, and
+# therefore created at the destination, twice within one copy.
+copy_tree() {
+    python3 -c '
+import shutil, sys
+src, dst = sys.argv[1], sys.argv[2]
+shutil.rmtree(dst, ignore_errors=True)
+shutil.copytree(src, dst, symlinks=False, dirs_exist_ok=True)
+' "$1" "$2"
+}
+
 if [ "$(uname)" != "Darwin" ]; then
     echo "Error: this script must be run on macOS." >&2
     exit 1
@@ -104,51 +127,19 @@ if [ ! -x "$PYTHON_FRAMEWORK_BIN" ]; then
     echo "Error: could not find a usable python3 (checked pygobject3's own python@ dependency via 'brew deps', then PATH)." >&2
     exit 1
 fi
-# Canonical (symlink-resolved), not sys.base_prefix's raw value:
-# Homebrew's Python.framework is reached through a chain of aliases
-# (.../Versions/Current -> .../Versions/3.14, among others), and
-# sys.base_prefix isn't guaranteed to already be the resolved,
-# alias-free path -- confirmed the hard way, since a copy sourced
-# from the unresolved path is exactly what made ditto (like cp -a
-# before it) revisit the same real directory under two different
-# apparent names within one recursive copy and fail with "File
-# exists" -- first during the big framework copy with cp -a, then
-# one level deeper, during the per-package copies below, even after
-# switching to ditto. Resolving to the real path here removes the
-# aliasing that both failures ultimately traced back to, rather than
-# working around wherever it happens to resurface next.
-PYTHON_BASE_PREFIX="$("$PYTHON_FRAMEWORK_BIN" -c 'import os, sys; print(os.path.realpath(sys.base_prefix))')"
+PYTHON_BASE_PREFIX="$("$PYTHON_FRAMEWORK_BIN" -c 'import sys; print(sys.base_prefix)')"
 PYTHON_VERSION="$("$PYTHON_FRAMEWORK_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 SITE_PACKAGES="$("$PYTHON_FRAMEWORK_BIN" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
 
-# ditto, not cp -a: Homebrew's Python.framework is riddled with
-# internal symlinks (Versions/Current -> Versions/3.14, and similar
-# aliases within it) -- confirmed the hard way, cp -a's recursive
-# traversal followed one of those back into a part of the tree it had
-# already copied within the same invocation and failed with "File
-# exists". ditto is Apple's own tool for exactly this: copying a
-# framework/bundle tree correctly (symlinks, resource forks, and all)
-# without that class of collision.
-ditto "$PYTHON_BASE_PREFIX" "$CONTENTS/Resources/python"
+copy_tree "$PYTHON_BASE_PREFIX" "$CONTENTS/Resources/python"
 rm -rf "$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages"/*
 
-# rm -rf immediately before each ditto, even though the line above
-# should already leave nothing at these destinations: ditto (like
-# cp -a before it) errors outright on a pre-existing destination
-# rather than merging into it, so this is cheap insurance against
-# that specific failure resurfacing here again for some other reason
-# this build hasn't hit yet, rather than something this script can
-# actually reason its way out of in advance.
 for pkg in gi cairo; do
-    DEST="$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/$pkg"
-    rm -rf "$DEST"
-    ditto "$SITE_PACKAGES/$pkg" "$DEST"
+    copy_tree "$SITE_PACKAGES/$pkg" "$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/$pkg"
 done
 for dist_info in "$SITE_PACKAGES"/pygobject-*.dist-info "$SITE_PACKAGES"/pycairo-*.dist-info; do
     if [ -d "$dist_info" ]; then
-        DEST="$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/$(basename "$dist_info")"
-        rm -rf "$DEST"
-        ditto "$dist_info" "$DEST"
+        copy_tree "$dist_info" "$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/$(basename "$dist_info")"
     fi
 done
 
@@ -289,7 +280,7 @@ chmod 755 "$CONTENTS/MacOS/$EXECUTABLE_NAME"
 # rather than wrapped in a further zip/dmg.
 
 rm -rf "${DIST_DIR:?}/$APP_BUNDLE_NAME"
-ditto "$APP_DIR" "$DIST_DIR/$APP_BUNDLE_NAME"
+copy_tree "$APP_DIR" "$DIST_DIR/$APP_BUNDLE_NAME"
 
 echo
 echo "Built: $DIST_DIR/$APP_BUNDLE_NAME"
