@@ -104,7 +104,20 @@ if [ ! -x "$PYTHON_FRAMEWORK_BIN" ]; then
     echo "Error: could not find a usable python3 (checked pygobject3's own python@ dependency via 'brew deps', then PATH)." >&2
     exit 1
 fi
-PYTHON_BASE_PREFIX="$("$PYTHON_FRAMEWORK_BIN" -c 'import sys; print(sys.base_prefix)')"
+# Canonical (symlink-resolved), not sys.base_prefix's raw value:
+# Homebrew's Python.framework is reached through a chain of aliases
+# (.../Versions/Current -> .../Versions/3.14, among others), and
+# sys.base_prefix isn't guaranteed to already be the resolved,
+# alias-free path -- confirmed the hard way, since a copy sourced
+# from the unresolved path is exactly what made ditto (like cp -a
+# before it) revisit the same real directory under two different
+# apparent names within one recursive copy and fail with "File
+# exists" -- first during the big framework copy with cp -a, then
+# one level deeper, during the per-package copies below, even after
+# switching to ditto. Resolving to the real path here removes the
+# aliasing that both failures ultimately traced back to, rather than
+# working around wherever it happens to resurface next.
+PYTHON_BASE_PREFIX="$("$PYTHON_FRAMEWORK_BIN" -c 'import os, sys; print(os.path.realpath(sys.base_prefix))')"
 PYTHON_VERSION="$("$PYTHON_FRAMEWORK_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 SITE_PACKAGES="$("$PYTHON_FRAMEWORK_BIN" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
 
@@ -119,11 +132,24 @@ SITE_PACKAGES="$("$PYTHON_FRAMEWORK_BIN" -c 'import sysconfig; print(sysconfig.g
 ditto "$PYTHON_BASE_PREFIX" "$CONTENTS/Resources/python"
 rm -rf "$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages"/*
 
+# rm -rf immediately before each ditto, even though the line above
+# should already leave nothing at these destinations: ditto (like
+# cp -a before it) errors outright on a pre-existing destination
+# rather than merging into it, so this is cheap insurance against
+# that specific failure resurfacing here again for some other reason
+# this build hasn't hit yet, rather than something this script can
+# actually reason its way out of in advance.
 for pkg in gi cairo; do
-    ditto "$SITE_PACKAGES/$pkg" "$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/$pkg"
+    DEST="$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/$pkg"
+    rm -rf "$DEST"
+    ditto "$SITE_PACKAGES/$pkg" "$DEST"
 done
 for dist_info in "$SITE_PACKAGES"/pygobject-*.dist-info "$SITE_PACKAGES"/pycairo-*.dist-info; do
-    [ -d "$dist_info" ] && ditto "$dist_info" "$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/$(basename "$dist_info")"
+    if [ -d "$dist_info" ]; then
+        DEST="$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/$(basename "$dist_info")"
+        rm -rf "$DEST"
+        ditto "$dist_info" "$DEST"
+    fi
 done
 
 # -- GTK4/GLib/etc. dylib closure ------------------------------------------------
