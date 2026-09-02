@@ -97,14 +97,22 @@ PYTHON_BASE_PREFIX="$("$PYTHON_FRAMEWORK_BIN" -c 'import sys; print(sys.base_pre
 PYTHON_VERSION="$("$PYTHON_FRAMEWORK_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 SITE_PACKAGES="$("$PYTHON_FRAMEWORK_BIN" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
 
-cp -a "$PYTHON_BASE_PREFIX" "$CONTENTS/Resources/python"
+# ditto, not cp -a: Homebrew's Python.framework is riddled with
+# internal symlinks (Versions/Current -> Versions/3.14, and similar
+# aliases within it) -- confirmed the hard way, cp -a's recursive
+# traversal followed one of those back into a part of the tree it had
+# already copied within the same invocation and failed with "File
+# exists". ditto is Apple's own tool for exactly this: copying a
+# framework/bundle tree correctly (symlinks, resource forks, and all)
+# without that class of collision.
+ditto "$PYTHON_BASE_PREFIX" "$CONTENTS/Resources/python"
 rm -rf "$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages"/*
 
 for pkg in gi cairo; do
-    cp -a "$SITE_PACKAGES/$pkg" "$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/"
+    ditto "$SITE_PACKAGES/$pkg" "$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/$pkg"
 done
 for dist_info in "$SITE_PACKAGES"/pygobject-*.dist-info "$SITE_PACKAGES"/pycairo-*.dist-info; do
-    [ -d "$dist_info" ] && cp -a "$dist_info" "$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/"
+    [ -d "$dist_info" ] && ditto "$dist_info" "$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/$(basename "$dist_info")"
 done
 
 # -- GTK4/GLib/etc. dylib closure ------------------------------------------------
@@ -226,7 +234,7 @@ chmod 755 "$CONTENTS/MacOS/$EXECUTABLE_NAME"
 # rather than wrapped in a further zip/dmg.
 
 rm -rf "${DIST_DIR:?}/$APP_BUNDLE_NAME"
-cp -a "$APP_DIR" "$DIST_DIR/$APP_BUNDLE_NAME"
+ditto "$APP_DIR" "$DIST_DIR/$APP_BUNDLE_NAME"
 
 echo
 echo "Built: $DIST_DIR/$APP_BUNDLE_NAME"
