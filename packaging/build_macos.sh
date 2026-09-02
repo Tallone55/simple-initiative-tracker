@@ -208,10 +208,25 @@ cp "$BREW_PREFIX/share/glib-2.0/schemas/gschemas.compiled" "$CONTENTS/Resources/
 PYTHON_BIN="$CONTENTS/Resources/python/bin/python3"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$PYTHON_BIN" 2>/dev/null || true
 if [ -n "$GI_EXT" ]; then
-    install_name_tool -add_rpath "@loader_path/../../../Frameworks" "$GI_EXT" 2>/dev/null || true
+    # $GI_EXT itself still points at the *original* Homebrew source
+    # file (correct as a seed for collect_dylibs.py above, since
+    # that's what needs to be walked for its real dependencies) --
+    # but the rpath needs to go on the actual copy that ended up
+    # inside the bundle, or the bundled _gi module never gets one and
+    # "import gi" fails at runtime with a dyld "Library not loaded"
+    # error despite the build itself completing without any
+    # complaint.
+    GI_EXT_BUNDLED="$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/gi/$(basename "$GI_EXT")"
+    install_name_tool -add_rpath "@loader_path/../../../Frameworks" "$GI_EXT_BUNDLED" 2>/dev/null || true
 else
     echo "Warning: PyGObject's _gi extension module wasn't found -- the built app likely can't import gi at runtime." >&2
 fi
+
+# Re-signed with a fresh ad-hoc signature after install_name_tool
+# invalidates whatever Homebrew originally applied -- same reasoning,
+# and same fix, as collect_dylibs.py's own _rewrite_install_names.
+codesign --force --sign - "$PYTHON_BIN" 2>/dev/null || true
+[ -n "$GI_EXT" ] && codesign --force --sign - "$GI_EXT_BUNDLED" 2>/dev/null || true
 
 # -- icon ------------------------------------------------
 # .icns has to be built from a set of rasterized PNG sizes -- rsvg-convert
