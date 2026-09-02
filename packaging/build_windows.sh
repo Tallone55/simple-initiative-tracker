@@ -110,7 +110,13 @@ done
 
 GTK_DLL="$MINGW_ROOT/bin/libgtk-4-1.dll"
 ADWAITA_DLL="$MINGW_ROOT/bin/libadwaita-1-0.dll"
-GI_EXT="$(find "$SITE_PACKAGES/gi" -maxdepth 1 -name '_gi.cp*-mingw*.pyd' -o -name '_gi.pyd' | head -1)"
+# *.pyd naming here isn't narrowed to any one assumed ABI-tag
+# convention (e.g. "-mingw-") -- MSYS2's exact compiled-extension
+# filename format isn't something to guess at from outside a real
+# MSYS2 install, so this matches broadly on the "_gi"/"_gi_cairo"/
+# "_cairo" prefix instead and lets whatever suffix MSYS2 actually
+# uses fall through.
+GI_EXT="$(find "$SITE_PACKAGES/gi" -maxdepth 1 -name '_gi*.pyd' ! -name '_gi_cairo*' | head -1)"
 GI_CAIRO_EXT="$(find "$SITE_PACKAGES/gi" -maxdepth 1 -name '_gi_cairo*.pyd' | head -1)"
 PYCAIRO_EXT="$(find "$SITE_PACKAGES/cairo" -maxdepth 1 -name '_cairo*.pyd' | head -1)"
 PIXBUF_QUERY_LOADERS="$MINGW_ROOT/bin/gdk-pixbuf-query-loaders.exe"
@@ -121,12 +127,21 @@ if [ ! -f "$GTK_DLL" ]; then
 fi
 
 SEEDS=("$GTK_DLL" "$PIXBUF_QUERY_LOADERS")
-[ -n "$GI_EXT" ] && SEEDS+=("$GI_EXT")
+if [ -n "$GI_EXT" ]; then
+    SEEDS+=("$GI_EXT")
+else
+    echo "Warning: PyGObject's _gi extension module wasn't found -- the built app likely can't import gi at runtime." >&2
+fi
 [ -n "$GI_CAIRO_EXT" ] && SEEDS+=("$GI_CAIRO_EXT")
 [ -n "$PYCAIRO_EXT" ] && SEEDS+=("$PYCAIRO_EXT")
 [ -f "$ADWAITA_DLL" ] && SEEDS+=("$ADWAITA_DLL")  # sit.py requires Adw 1 alongside Gtk 4
 
-PIXBUF_LOADER_DIR="$(dirname "$(find "$MINGW_ROOT/lib/gdk-pixbuf-2.0" -name 'libpixbufloader-*.dll' | head -1)")"
+PIXBUF_LOADER="$(find "$MINGW_ROOT/lib/gdk-pixbuf-2.0" -name 'libpixbufloader-*.dll' 2>/dev/null | head -1)"
+if [ -z "$PIXBUF_LOADER" ]; then
+    echo "Error: no gdk-pixbuf loader DLLs found under $MINGW_ROOT/lib/gdk-pixbuf-2.0 -- is mingw-w64-x86_64-gdk-pixbuf2 installed?" >&2
+    exit 1
+fi
+PIXBUF_LOADER_DIR="$(dirname "$PIXBUF_LOADER")"
 for loader in "$PIXBUF_LOADER_DIR"/*.dll; do
     SEEDS+=("$loader")
 done

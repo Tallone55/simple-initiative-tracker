@@ -85,13 +85,24 @@ cp "$PROJECT_ROOT"/ui/*.ui "$CONTENTS/Resources/ui/"
 # and cairo, the same trim the Linux/Windows builds each do for their
 # own bundled interpreter.
 
-PYTHON_FRAMEWORK_BIN="$(brew --prefix pygobject3)/../python@3.13/bin/python3" 2>/dev/null || true
+# Asked from Homebrew's own dependency graph rather than hardcoded --
+# pygobject3 depends on whichever "python@X.Y" formula is current,
+# and that version number drifts with every Homebrew release (this
+# was previously hardcoded to "python@3.13" as a guess, which is
+# exactly the kind of assumption that broke build_macos.sh's very
+# first real run for an unrelated reason -- not worth leaving a
+# second one sitting here for the *next* run to trip over).
+PYTHON_FORMULA="$(brew deps --formula pygobject3 2>/dev/null | grep '^python@' | head -1 || true)"
+if [ -n "$PYTHON_FORMULA" ] && PYTHON_PREFIX="$(brew --prefix "$PYTHON_FORMULA" 2>/dev/null)"; then
+    PYTHON_FRAMEWORK_BIN="$PYTHON_PREFIX/bin/python3"
+else
+    # Falls back to whatever "python3" resolves to on PATH if the
+    # dependency lookup itself didn't work out.
+    PYTHON_FRAMEWORK_BIN="$(command -v python3 || true)"
+fi
 if [ ! -x "$PYTHON_FRAMEWORK_BIN" ]; then
-    # Falls back to whatever "python3" resolves to on PATH -- the
-    # exact Homebrew Python formula/version pygobject3 was built
-    # against varies by Homebrew release, so this is intentionally
-    # not hardcoded to one version number.
-    PYTHON_FRAMEWORK_BIN="$(command -v python3)"
+    echo "Error: could not find a usable python3 (checked pygobject3's own python@ dependency via 'brew deps', then PATH)." >&2
+    exit 1
 fi
 PYTHON_BASE_PREFIX="$("$PYTHON_FRAMEWORK_BIN" -c 'import sys; print(sys.base_prefix)')"
 PYTHON_VERSION="$("$PYTHON_FRAMEWORK_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
@@ -135,11 +146,20 @@ SEEDS=("$GTK_DYLIB" "$PIXBUF_QUERY_LOADERS")
 [ -n "$PYCAIRO_EXT" ] && SEEDS+=("$PYCAIRO_EXT")
 [ -n "$ADWAITA_DYLIB" ] && SEEDS+=("$ADWAITA_DYLIB")  # sit.py requires Adw 1 alongside Gtk 4
 
-GDK_PIXBUF_LOADER_DIR="$(dirname "$(find "$BREW_PREFIX/lib/gdk-pixbuf-2.0" -name 'libpixbufloader-*.so' 2>/dev/null | head -1)")"
-if [ -d "$GDK_PIXBUF_LOADER_DIR" ]; then
+GDK_PIXBUF_LOADER="$(find "$BREW_PREFIX/lib/gdk-pixbuf-2.0" -name 'libpixbufloader-*.so' 2>/dev/null | head -1)"
+if [ -n "$GDK_PIXBUF_LOADER" ]; then
+    GDK_PIXBUF_LOADER_DIR="$(dirname "$GDK_PIXBUF_LOADER")"
     for loader in "$GDK_PIXBUF_LOADER_DIR"/*.so; do
         SEEDS+=("$loader")
     done
+else
+    # Empty rather than unset: downstream checks test for this
+    # specifically (an empty find result piped through dirname would
+    # otherwise silently become ".", the current directory -- not an
+    # error -- and later steps would glob whatever unrelated files
+    # happen to be sitting there instead of failing loudly here).
+    GDK_PIXBUF_LOADER_DIR=""
+    echo "Warning: no gdk-pixbuf loaders found under $BREW_PREFIX/lib/gdk-pixbuf-2.0 -- image loading (icons, PNGs, etc.) may not work in the built app." >&2
 fi
 
 python3 "$MACOS_DIR/collect_dylibs.py" --out "$CONTENTS/Frameworks" "${SEEDS[@]}"
@@ -151,7 +171,12 @@ cp "$PIXBUF_QUERY_LOADERS" "$CONTENTS/Resources/lib/gdk-pixbuf-2.0/"
 
 # -- GObject Introspection typelibs ------------------------------------------------
 
-TYPELIB_DIR="$(dirname "$(find "$BREW_PREFIX/lib/girepository-1.0" -name 'Gtk-4.0.typelib' 2>/dev/null | head -1)")"
+GTK_TYPELIB="$(find "$BREW_PREFIX/lib/girepository-1.0" -name 'Gtk-4.0.typelib' 2>/dev/null | head -1)"
+if [ -z "$GTK_TYPELIB" ]; then
+    echo "Error: Gtk-4.0.typelib not found under $BREW_PREFIX/lib/girepository-1.0 -- is 'brew install gtk4' done?" >&2
+    exit 1
+fi
+TYPELIB_DIR="$(dirname "$GTK_TYPELIB")"
 cp "$TYPELIB_DIR"/*.typelib "$CONTENTS/Resources/lib/girepository-1.0/"
 
 # -- GSettings schemas ------------------------------------------------
@@ -165,7 +190,11 @@ cp "$BREW_PREFIX/share/glib-2.0/schemas/gschemas.compiled" "$CONTENTS/Resources/
 
 PYTHON_BIN="$CONTENTS/Resources/python/bin/python3"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$PYTHON_BIN" 2>/dev/null || true
-install_name_tool -add_rpath "@loader_path/../../../Frameworks" "$GI_EXT" 2>/dev/null || true
+if [ -n "$GI_EXT" ]; then
+    install_name_tool -add_rpath "@loader_path/../../../Frameworks" "$GI_EXT" 2>/dev/null || true
+else
+    echo "Warning: PyGObject's _gi extension module wasn't found -- the built app likely can't import gi at runtime." >&2
+fi
 
 # -- icon ------------------------------------------------
 # .icns has to be built from a set of rasterized PNG sizes -- rsvg-convert
