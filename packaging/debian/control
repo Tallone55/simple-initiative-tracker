@@ -1,5 +1,5 @@
-Package: initiative-tracker
-Version: 1.0.0rc3
+Package: simple-initiative-tracker
+Version: 1.0.0rc5
 Section: games
 Priority: optional
 Architecture: all
