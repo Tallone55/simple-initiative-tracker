@@ -3,10 +3,12 @@ from gi.repository import Gio, Gtk
 from models import InitiativeDatabase
 from creature_dialogs import open_edit_dialog, open_edit_hitpoints_dialog, open_add_creature_dialog
 from round_dialog import open_edit_round_dialog
+from creature_stats_dialog import open_creature_stats_dialog
 from column_factory import CreatureColumnFactory
 from undo_manager import UndoManager
 from session_manager import SessionManager
 from app_menus import build_hamburger_menu
+from app_mode import Mode, MODE_LABELS, MODE_TO_INT, mode_from_int
 import creature_commands
 
 
@@ -22,11 +24,20 @@ class AppWindow(Gtk.ApplicationWindow):
 
         self.initiative_database = InitiativeDatabase()
         self.undo_manager = UndoManager()
+        # A fresh, empty database starts in Simple mode (see
+        # InitiativeDatabase.__init__/.clear()) -- loading a file
+        # that was saved in 5e Combat mode switches this via
+        # _handle_state_changed below, same as it does for every
+        # other piece of state a load can change. See the
+        # mode-switcher popover (_build_headerbar) and app_mode.py
+        # for the full read/write path (CSV_HEADERS' second trailing
+        # header-row cell).
+        self.mode = Mode.SIMPLE
         self.session = SessionManager(
             window=self,
             initiative_database=self.initiative_database,
             undo_manager=self.undo_manager,
-            on_state_changed=lambda resort: self.after_database_mutation(resort=resort, mark_dirty=False),
+            on_state_changed=self._handle_state_changed,
         )
 
         self._register_actions()
@@ -35,6 +46,7 @@ class AppWindow(Gtk.ApplicationWindow):
             on_edit_requested=self._handle_edit_requested,
             on_hitpoints_edit_requested=self._handle_hitpoints_edit_requested,
             on_remove_requested=self._handle_remove_requested,
+            on_stats_requested=self._handle_stats_requested,
         )
 
         self.set_titlebar(self._build_headerbar())
@@ -152,16 +164,24 @@ class AppWindow(Gtk.ApplicationWindow):
         # The round counter lives in its own row below the headerbar
         # instead (see __init__), since the two headerbar buttons above
         # left no good place for a centered title widget anyway.
+        #
+        # The mode switcher deliberately does NOT take over the
+        # headerbar's center/title-widget slot the way GNOME
+        # Calculator's own mode switcher does -- doing that here would
+        # replace the on-screen filename/unsaved-indicator (the "*"
+        # prefix from SessionManager) with the mode switcher instead
+        # of alongside it, which trades away real, already-working
+        # feedback for closer visual mimicry of gnome-calculator.
 
-        # Packed before menu_button, so it lands between the headerbar's
-        # other end-packed content and the hamburger menu -- on the
-        # opposite side from the window's own native title-bar controls
-        # (minimize/maximize/close), which GtkHeaderBar renders at the
-        # true outer edge and aren't pack_end() children themselves.
-        titlebar_separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
-        titlebar_separator.set_margin_start(6)
-        titlebar_separator.set_margin_end(6)
-        headerbar.pack_end(titlebar_separator)
+        # Gtk.HeaderBar.pack_end() stacks inward from the true edge as
+        # each call is made -- the *first* pack_end() call ends up
+        # closest to the actual edge (right next to the window's own
+        # native minimize/maximize/close controls), and each
+        # subsequent call lands one step further toward the title/
+        # content, not the other way around. So to get, left to right,
+        # "...title | mode switcher | separator | hamburger | window
+        # controls", the hamburger has to be packed first, then the
+        # separator, then the mode switcher last.
 
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
@@ -169,7 +189,78 @@ class AppWindow(Gtk.ApplicationWindow):
         menu_button.set_tooltip_text("Menu")
         headerbar.pack_end(menu_button)
 
+        titlebar_separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        titlebar_separator.set_margin_start(6)
+        titlebar_separator.set_margin_end(6)
+        headerbar.pack_end(titlebar_separator)
+
+        self.mode_button = Gtk.MenuButton()
+        self.mode_button.set_label(MODE_LABELS[self.mode])
+        self.mode_button.set_tooltip_text("Switch mode")
+        self.mode_button.set_popover(self._build_mode_popover())
+        headerbar.pack_end(self.mode_button)
+
         return headerbar
+
+    def _build_mode_popover(self):
+        """Popover for the headerbar mode switcher, gnome-calculator
+        style: one row per Mode, a checkmark on whichever is active,
+        clicking a different one switches to it and closes the
+        popover."""
+        popover = Gtk.Popover()
+        list_box = Gtk.ListBox()
+        list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        list_box.add_css_class("boxed-list")
+
+        self._mode_check_icons = {}
+        for mode in Mode:
+            row = Gtk.ListBoxRow()
+            row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
+                               margin_top=6, margin_bottom=6, margin_start=10, margin_end=10)
+            row_box.append(Gtk.Label(label=MODE_LABELS[mode], xalign=0, hexpand=True))
+            check = Gtk.Image.new_from_icon_name("object-select-symbolic")
+            check.set_visible(mode is self.mode)
+            self._mode_check_icons[mode] = check
+            row_box.append(check)
+            row.set_child(row_box)
+            row.mode = mode
+            list_box.append(row)
+
+        def on_row_activated(_list_box, row):
+            self._set_mode(row.mode)
+            popover.popdown()
+
+        list_box.connect("row-activated", on_row_activated)
+        popover.set_child(list_box)
+        return popover
+
+    def _set_mode(self, mode):
+        """Switches the app's display/data mode: updates the switcher
+        button/popover checkmarks, shows/hides the 5e Combat-only
+        stats column, and mirrors the change onto
+        self.initiative_database.mode (as a plain int -- see
+        app_mode.py) so the next export captures whatever mode is
+        actually active, without needing some separate explicit save
+        step to catch up."""
+        if mode is self.mode:
+            return
+        self.mode = mode
+        self.initiative_database.mode = MODE_TO_INT[mode]
+        self.mode_button.set_label(MODE_LABELS[mode])
+        for candidate_mode, check in self._mode_check_icons.items():
+            check.set_visible(candidate_mode is mode)
+        self.creature_columns.set_combat_columns_visible(mode is Mode.COMBAT_5E)
+
+    def _handle_state_changed(self, resort):
+        """SessionManager's on_state_changed callback -- fires after
+        any load that replaces the database wholesale (Open, Import,
+        New), where more than just the creature list may have
+        changed. Syncs the mode switcher to whatever
+        self.initiative_database.mode the load just set (a plain int;
+        mode_from_int falls back to Simple for anything it doesn't
+        recognize) before the normal post-mutation refresh runs."""
+        self._set_mode(mode_from_int(self.initiative_database.mode))
+        self.after_database_mutation(resort=resort, mark_dirty=False)
 
     # -- shared post-mutation refresh -------------------------------------
 
@@ -271,6 +362,20 @@ class AppWindow(Gtk.ApplicationWindow):
 
         open_edit_hitpoints_dialog(self, creature_obj, on_committed)
 
+    def _handle_stats_requested(self, creature_obj):
+        """Opens the full 5e stat-block editor (creature_stats_dialog.py)
+        for an existing creature -- the undo/redo command (covering the
+        whole stat block as one action) is built in creature_commands.py."""
+        old_stats = {field: getattr(creature_obj, field) for field in creature_commands.STATS_FIELDS}
+
+        def on_committed(new_stats):
+            for field, value in new_stats.items():
+                setattr(creature_obj, field, value)
+            creature_commands.edit_stats(self.undo_manager, creature_obj, old_stats, new_stats)
+            self.after_database_mutation(resort=False)
+
+        open_creature_stats_dialog(self, old_stats, on_committed)
+
     def _handle_remove_requested(self, creature_obj):
         """Removes a creature via creature_commands, which also
         registers the matching undo/redo command."""
@@ -300,7 +405,7 @@ class AppWindow(Gtk.ApplicationWindow):
 
     def on_add_creature_clicked(self, button):
         """Opens the Add Creature dialog."""
-        open_add_creature_dialog(self, self._handle_creatures_added)
+        open_add_creature_dialog(self, self.mode, self._handle_creatures_added)
 
     def _handle_creatures_added(self, creatures):
         """Adds one or more new creatures via creature_commands, which

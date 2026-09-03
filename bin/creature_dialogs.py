@@ -9,6 +9,9 @@ from gi.repository import Gtk
 from ui_paths import EDIT_FIELD_UI_PATH, EDIT_HITPOINTS_UI_PATH, ADD_CREATURE_UI_PATH
 from models import Creature
 from expressions import evaluate_int_expression, ExpressionError
+from app_mode import Mode
+from creature_stats_dialog import open_creature_stats_dialog
+from creature_commands import STATS_FIELDS
 
 # Fields edited as free-form text rather than an arithmetic/dice
 # expression via open_edit_dialog. "name" falls back to "Unnamed" when
@@ -141,10 +144,19 @@ def open_edit_hitpoints_dialog(parent, creature_obj, on_committed):
     window.present()
 
 
-def open_add_creature_dialog(parent, on_added):
+def open_add_creature_dialog(parent, mode, on_added):
     """on_added(creatures: list[Creature]) is called after a successful
     add, once the dialog has already been destroyed. A list is used even
     for the common single-creature case so callers have one code path.
+
+    mode controls how the 5e stat block is entered: Simple mode
+    exposes just a plain Dexterity field (for breaking initiative
+    ties); 5e Combat mode replaces it with an "Edit Stats..." button
+    that opens the same full stat-block editor the crossed-swords
+    table column uses (creature_stats_dialog.py) -- since Add Creature
+    can create several creatures at once, whatever's set there is
+    identical ("propagated") across every creature in that batch,
+    rather than asked for once per creature.
     """
     builder = Gtk.Builder()
     builder.add_from_file(ADD_CREATURE_UI_PATH)
@@ -155,12 +167,32 @@ def open_add_creature_dialog(parent, on_added):
     ac_entry = builder.get_object("ac_entry")
     init_entry = builder.get_object("init_entry")
     status_entry = builder.get_object("status_entry")
+    dex_entry = builder.get_object("dex_entry")
+    stats_button = builder.get_object("stats_button")
     count_spin = builder.get_object("count_spin")
     error_label = builder.get_object("error_label")
     add_button = builder.get_object("add_button")
     cancel_button = builder.get_object("cancel_button")
 
     window.set_transient_for(parent)
+
+    is_combat_mode = mode is Mode.COMBAT_5E
+    dex_entry.set_visible(not is_combat_mode)
+    stats_button.set_visible(is_combat_mode)
+
+    # The batch's shared stat block -- untouched (all zeros) unless
+    # the user actually opens Edit Stats, in which case every field
+    # here (including dexterity, no longer entered via dex_entry in
+    # this mode) gets applied identically to every creature created
+    # below.
+    staged_stats = {field: 0 for field in STATS_FIELDS}
+
+    def on_stats_button_clicked(_button):
+        def on_stats_committed(new_stats):
+            staged_stats.update(new_stats)
+        open_creature_stats_dialog(window, staged_stats, on_stats_committed)
+
+    stats_button.connect("clicked", on_stats_button_clicked)
 
     def show_error(message):
         error_label.set_text(message)
@@ -181,29 +213,39 @@ def open_add_creature_dialog(parent, on_added):
             # Hitpoints, Armor Class, and Initiative Roll are each
             # re-evaluated per creature rather than once outside the
             # loop, so dice notation in any of them gives every
-            # creature in the batch its own independent roll.
+            # creature in the batch its own independent roll. The
+            # rest of the stat block (staged_stats, or a plain
+            # Dexterity in Simple mode) is deliberately NOT
+            # re-evaluated per creature -- it's already resolved to
+            # plain integers, the same for every creature in the
+            # batch, by design (see the docstring above).
             try:
                 hitpoints = evaluate_int_expression(hp_entry.get_text())
                 armor_class = evaluate_int_expression(ac_entry.get_text())
                 initiative_roll = evaluate_int_expression(raw_init)
+                dexterity = staged_stats["dexterity"] if is_combat_mode else evaluate_int_expression(dex_entry.get_text())
             except ExpressionError:
                 show_error(
-                    "Hitpoints, Armor Class, and Initiative Roll must be "
-                    "whole numbers or expressions."
+                    "Hitpoints, Armor Class, Initiative Roll, and Dexterity "
+                    "must be whole numbers or expressions."
                 )
                 return
 
             # Only number duplicates when there's more than one -- a
             # single add keeps the name exactly as typed.
             display_name = f"{base_name} {i + 1}" if count > 1 else base_name
-            creatures.append(Creature(
+            creature_kwargs = dict(
                 name=display_name,
                 hitpoints=hitpoints,
                 max_hitpoints=hitpoints,
                 armor_class=armor_class,
                 initiative_roll=initiative_roll,
                 status=status,
-            ))
+                dexterity=dexterity,
+            )
+            if is_combat_mode:
+                creature_kwargs.update({f: v for f, v in staged_stats.items() if f != "dexterity"})
+            creatures.append(Creature(**creature_kwargs))
 
         window.destroy()
         on_added(creatures)

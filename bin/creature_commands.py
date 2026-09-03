@@ -78,3 +78,31 @@ def edit_hitpoints(undo_manager, creature_obj, old_hitpoints, old_max, old_temp,
         creature_obj.temp_hitpoints = new_temp
 
     undo_manager.push(Command(undo=undo, redo=redo))
+
+
+# The full set of fields creature_stats_dialog.py's stats dict covers
+# -- kept in one place so edit_stats below and window.py's read side
+# (building the dict to hand the dialog) can't drift apart on which
+# keys are actually part of "the stat block."
+STATS_FIELDS = [
+    "strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma",
+    "proficiency_bonus", "save_skill_pattern", "to_hit_bonus",
+]
+
+
+def edit_stats(undo_manager, creature_obj, old_stats, new_stats):
+    """Registers a single undo/redo command covering the whole 5e
+    stat block (six ability scores, proficiency bonus, and the
+    encoded saving-throw/skill pattern) as one logical action, same
+    reasoning as edit_hitpoints above. old_stats/new_stats are dicts
+    keyed by STATS_FIELDS -- see creature_stats_dialog.py's own
+    docstring for the exact shape."""
+    def undo():
+        for field in STATS_FIELDS:
+            setattr(creature_obj, field, old_stats[field])
+
+    def redo():
+        for field in STATS_FIELDS:
+            setattr(creature_obj, field, new_stats[field])
+
+    undo_manager.push(Command(undo=undo, redo=redo))

@@ -91,6 +91,43 @@ windowcontrols button,
 windowcontrols button image {
     transition: none;
 }
+/* Remove and Edit Stats (crossed-swords) column buttons: a visible
+   background at rest, not just on hover, so both read as clickable
+   controls sitting in the table rather than plain glyphs -- matches
+   .editable-cell's own alpha(currentColor, ...) approach (theme-
+   relative, not a hardcoded color) but a bit stronger, appropriate
+   for a small icon-only button rather than a full text cell.
+   background-image: none defeats the active theme's own default
+   button chrome, same reasoning as headerbar buttons elsewhere in
+   this file. */
+.icon-cell-button {
+    background-color: alpha(currentColor, 0.1);
+    background-image: none;
+    border-radius: 6px;
+}
+.icon-cell-button:hover {
+    background-color: alpha(currentColor, 0.18);
+    background-image: none;
+}
+.icon-cell-button:active {
+    background-color: alpha(currentColor, 0.26);
+    background-image: none;
+}
+/* The crossed-swords glyph itself, 50% larger than the button's
+   surrounding (inherited) text size. */
+.stats-button {
+    font-size: 1.5em;
+}
+/* Each ability's row in the stat-block editor window
+   (creature_stats_dialog.py) -- a visibly bordered, rounded-corner
+   "card" so the six rows read as distinct groups rather than one
+   continuous block; alpha(currentColor, ...) again for a
+   theme-relative border rather than a hardcoded color. */
+.stat-row {
+    border: 1px solid alpha(currentColor, 0.2);
+    border-radius: 10px;
+    background-color: alpha(currentColor, 0.03);
+}
 """
 
 

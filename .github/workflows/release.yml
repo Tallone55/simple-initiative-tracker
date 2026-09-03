@@ -15,8 +15,16 @@
 # switched its *default* runtime to Node 24 -- not just the first
 # version with "preliminary" Node 24 support while still defaulting
 # to the now-deprecated Node 20 (checkout@v5, upload-artifact@v6,
-# download-artifact@v7 respectively). Don't downgrade these to match
-# some other pin elsewhere without checking that first.
+# download-artifact@v7 respectively). softprops/action-gh-release@v3
+# is the same kind of pin (its v3.0.0 is the Node 24 migration).
+# astral-sh/setup-uv@v10.0.1 is pinned to a full, exact version rather
+# than a floating major tag like the others -- astral-sh discontinued
+# floating major/minor tags for this action entirely (a deliberate
+# supply-chain-security choice, after the tj-actions incident), so
+# "@v10" or "@v7" (the version that actually added Node 24 support)
+# wouldn't resolve to anything at all, only an exact "@vX.Y.Z" does.
+# Don't downgrade any of these to match some other pin elsewhere
+# without checking the reasoning above first.
 
 name: Build release archives
 
@@ -42,7 +50,7 @@ jobs:
             dpkg-dev
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v10.0.1
 
       - name: Sync project environment
         run: uv sync
@@ -142,6 +150,6 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: artifacts/*

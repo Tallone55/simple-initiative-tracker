@@ -29,16 +29,30 @@ class CreatureColumnFactory:
         on_edit_requested,
         on_hitpoints_edit_requested,
         on_remove_requested,
+        on_stats_requested,
     ):
         """on_edit_requested(creature_obj, field_name, display_name) is
         called on a click on the Creature/Armor Class/Initiative
         Roll/Status cell. on_hitpoints_edit_requested(creature_obj) is
         called on the Hitpoints cell (routed separately since it opens
-        a dedicated current/max/temp HP dialog). on_remove_requested(creature_obj)
-        is called when a row's remove button is clicked."""
+        a dedicated current/max/temp HP dialog). on_stats_requested(
+        creature_obj) is called on the crossed-swords stats-column
+        button (5e Combat mode only -- opens the full ability/
+        proficiency/skill editor, creature_stats_dialog.py).
+        on_remove_requested(creature_obj) is called when a row's
+        remove button is clicked."""
         self.on_edit_requested = on_edit_requested
         self.on_hitpoints_edit_requested = on_hitpoints_edit_requested
         self.on_remove_requested = on_remove_requested
+        self.on_stats_requested = on_stats_requested
+
+        # Built once here so set_combat_columns_visible (called from
+        # window.py whenever the mode-switcher popover changes mode)
+        # has a stable reference. Hidden by default -- AppWindow
+        # starts in Simple mode.
+        self._combat_only_columns = [self._build_stats_column(min_width=48)]
+        for column in self._combat_only_columns:
+            column.set_visible(False)
 
         self.columns = [
             self._build_field_column(
@@ -78,8 +92,72 @@ class CreatureColumnFactory:
                 expand=True,
                 min_width=100,
             ),
+            *self._combat_only_columns,
             self._build_remove_column(min_width=48),
         ]
+
+    def set_combat_columns_visible(self, visible):
+        """Shows or hides the 5e Combat-mode stats column -- called
+        from window.py's mode switcher. A pure display toggle: the
+        underlying ability-score/proficiency/skill data is untouched
+        either way, so switching back to Combat mode later (or
+        exporting to CSV regardless of the currently active mode)
+        still has whatever was entered."""
+        for column in self._combat_only_columns:
+            column.set_visible(visible)
+
+    def _build_stats_column(self, min_width=48):
+        """The single 5e Combat-mode column: a button showing a
+        crossed-swords glyph that opens the full stat-block editor
+        (creature_stats_dialog.py) -- all six ability scores,
+        proficiency bonus, saving throws, and skills. Replaces what
+        used to be six separate ability-score columns (Str/Dex/Con/
+        Int/Wis/Cha): those didn't leave anywhere to show the
+        saving-throw/skill data this button now also gives access to,
+        and eighteen skills' worth of columns was never going to fit
+        in a table row regardless. Built the same way
+        _build_remove_column is -- a plain icon-style button per row,
+        not the generic editable-text-cell factory the other columns
+        use, since this one always does the same thing (open the
+        window) rather than editing a value in place. Positioned as
+        the second-to-last column, right beside Remove, and shares
+        its ".icon-cell-button" shading (styling.py) so both read as
+        clickable at rest, not just on hover."""
+        factory = Gtk.SignalListItemFactory()
+
+        def on_setup(factory, list_item):
+            button = Gtk.Button(label="\u2694")  # crossed swords (U+2694)
+            button.set_tooltip_text("Edit Stats")
+            button.add_css_class("flat")
+            button.add_css_class("icon-cell-button")
+            button.add_css_class("stats-button")
+            button.set_overflow(Gtk.Overflow.HIDDEN)
+            button.set_halign(Gtk.Align.CENTER)
+            button.set_valign(Gtk.Align.CENTER)
+            list_item.set_child(button)
+            list_item.click_handler_id = None
+
+        def on_bind(factory, list_item):
+            creature_obj = list_item.get_item()
+            button = list_item.get_child()
+            list_item.click_handler_id = button.connect(
+                "clicked", lambda b: self.on_stats_requested(creature_obj)
+            )
+
+        def on_unbind(factory, list_item):
+            button = list_item.get_child()
+            if list_item.click_handler_id is not None:
+                button.disconnect(list_item.click_handler_id)
+                list_item.click_handler_id = None
+
+        factory.connect("setup", on_setup)
+        factory.connect("bind", on_bind)
+        factory.connect("unbind", on_unbind)
+
+        column = Gtk.ColumnViewColumn(title="", factory=factory)
+        column.set_resizable(False)
+        column.set_fixed_width(min_width)
+        return column
 
     @staticmethod
     def _format_hitpoints(creature_obj):
@@ -203,6 +281,7 @@ class CreatureColumnFactory:
             button = Gtk.Button.new_from_icon_name("user-trash-symbolic")
             button.set_tooltip_text("Remove")
             button.add_css_class("flat")
+            button.add_css_class("icon-cell-button")
             button.set_overflow(Gtk.Overflow.HIDDEN)
             # Centered rather than forced to fill the full column width
             # (which left it flush against one edge) -- the column's
