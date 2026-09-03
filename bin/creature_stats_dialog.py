@@ -116,7 +116,18 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
     # own natural content size, so e.g. "Con" being narrower than
     # "Str" -- or a two-digit save total vs. a one-digit one -- could
     # shift where the Save column started, row to row).
-    _ABILITY_BLOCK_WIDTH = 70
+    # Matches the ability-score entry's own natural width (see its
+    # construction site for how that 42px figure was measured) --
+    # not a few extra pixels of "breathing room" like the other block
+    # widths get. Any surplus here has to be distributed by the
+    # flanking spacers that center the entry (see its own comment),
+    # and that surplus was exactly what kept leaving a visibly larger
+    # gap on the entry's side of the vertical separator than the
+    # Save block's side had to match -- confirmed directly, and not
+    # fixed by simply shrinking the surplus rather than removing it,
+    # since any nonzero surplus still has *some* width to contribute
+    # asymmetrically. Sized to leave essentially none.
+    _ABILITY_BLOCK_WIDTH = 42
     _SAVE_BLOCK_WIDTH = 150
     _SKILL_BLOCK_WIDTH = 150
     _MAX_SKILLS_PER_ROW = max(len(skills) for skills in SKILLS_BY_ABILITY.values())
@@ -130,7 +141,7 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
     def _section_separator():
         return Gtk.Separator(orientation=Gtk.Orientation.VERTICAL, margin_top=2, margin_bottom=2)
 
-    def _labeled_block(label_text, controls_row, width):
+    def _labeled_block(label_text, controls_row, width, expand_controls=False):
         """Wraps one property's label and controls (a base ability
         score, Save, or one skill) in its own invisible box with
         standardized padding and a fixed width -- every block of the
@@ -139,7 +150,7 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
         be, which is what keeps every row the same overall length and
         every column starting at the same position.
 
-        controls_row is always left-justified and non-expanding here,
+        controls_row defaults to left-justified and non-expanding,
         anchored to the same fixed offset from the block's own left
         edge on every row -- that's what keeps e.g. every Save row's
         checkboxes lined up in a straight column regardless of a
@@ -147,19 +158,20 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
         multi-widget controls_rows was exactly what broke that column
         alignment before: each row centered independently against its
         own differing natural width instead of sharing one fixed
-        reference point). The one controls_row that IS visually
-        centered -- the base ability score entry -- handles that
-        itself, via its own explicit margins set at its construction
-        site, rather than through this function; see the comment
-        there for why.
+        reference point). expand_controls=True opts out of that for
+        controls_row itself (letting it fill the block's full width)
+        -- used for the one controls_row built to center *itself*
+        within whatever width it's given (the base ability score
+        entry, flanked by two equal-weight spacers -- see its own
+        construction site for why that, and not a fixed pixel
+        offset, is what actually centers reliably).
 
         The label above it is different: titles aren't compared
         against each other the way a column of entries is, so there's
         no alignment hazard in letting it expand and center -- and a
         centered title reads better sitting over the block as a
         whole. hexpand=True + halign=CENTER here is scoped to just
-        this Label; controls_row's own alignment is set separately as
-        described above."""
+        this Label."""
         box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=1,
             margin_top=3, margin_bottom=3, margin_start=5, margin_end=5,
@@ -182,8 +194,11 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
             label=label_text, halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER,
             hexpand=True, css_classes=["dim-label"],
         )
-        controls_row.set_halign(Gtk.Align.START)
-        controls_row.set_hexpand(False)
+        if expand_controls:
+            controls_row.set_hexpand(True)
+        else:
+            controls_row.set_halign(Gtk.Align.START)
+            controls_row.set_hexpand(False)
         controls_row.set_valign(Gtk.Align.CENTER)
         box.append(label)
         box.append(controls_row)
@@ -284,11 +299,10 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
         # pixels off from its title above -- both were really just
         # this unconstrained natural width showing up in different
         # ways depending on what alignment was being tried at the
-        # time. This entry positions itself directly, via explicit,
-        # symmetric margins (see below) -- not through
-        # _labeled_block's own halign/hexpand centering, which is why
-        # it's passed through with center_controls left at its
-        # left-justified default just below.
+        # time. This entry centers itself via two flanking spacers
+        # (see below), passed through _labeled_block with
+        # expand_controls=True so the flanking row can actually use
+        # the block's full width to work with.
         entry.set_valign(Gtk.Align.CENTER)
         # A width floor, not just width_chars/max_width_chars: those
         # only set the entry's *preferred* width, and a row with five
@@ -306,34 +320,42 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
         # neighbor instead of sitting at its own natural, compact
         # height like everything else.
         entry.set_size_request(30, -1)
-        # Explicit margins, not GTK's own halign=CENTER centering,
-        # which (with this exact entry, in this exact context)
-        # reliably rendered a consistent several pixels off from true
-        # center for reasons direct measurement narrowed down but
-        # never fully explained across several different centering
-        # mechanisms tried first. This block's own content width is
-        # _ABILITY_BLOCK_WIDTH minus its own left/right margins
-        # (70 - 5 - 5 = 60); this entry's natural width, with
-        # max_width_chars constraining it, is 42px (confirmed by
-        # direct measurement, and stable regardless of the specific
-        # 1-3 digit score actually entered, since max_width_chars caps
-        # the *computed* natural size the same way regardless of the
-        # current text) -- leaving 18px of margin to place, split as
-        # 5/13 rather than the naively-symmetric 9/9 an unexplained
-        # few-pixel rendering offset (present with margin_start=
-        # margin_end=9 too, just as it was with plain halign=CENTER)
-        # otherwise leaves off-center by. halign=START is set
-        # explicitly too, so it's these margins that determine this
-        # entry's position, not a halign it's no longer using for
-        # that purpose. Confirmed by direct pixel measurement to land
-        # the entry's center within 0px of its title's.
-        entry.set_halign(Gtk.Align.START)
-        entry.set_margin_start(5)
-        entry.set_margin_end(13)
+        # Flanked by two equal-hexpand spacers, not halign=CENTER on
+        # the entry directly (nor, before that, hand-computed
+        # margin_start/margin_end values) -- both of those were tried
+        # first and both turned out to depend on the entry's own
+        # natural width being some specific, predictable value, which
+        # is exactly what doesn't hold reliably across different
+        # systems: real screenshots on an actual machine (both with
+        # blank fields and with every field filled in) showed a
+        # clear, consistent left-bias that plain halign=CENTER in
+        # this sandbox didn't reproduce the same way, meaning neither
+        # approach was ever really portable, just coincidentally
+        # close in whichever one environment it was last tuned
+        # against. Two spacers of literally identical, hexpand=True
+        # priority on either side of a non-expanding entry removes
+        # that dependency entirely: whatever surplus width the block
+        # has beyond the entry's own natural size, GTK's box layout
+        # splits it equally between two equal-priority hexpand
+        # children by definition, not by any measurement of what the
+        # entry's own rendered width happens to be on this particular
+        # system. That's a property of how GTK's box allocation
+        # itself works, not of this font, this theme, or this
+        # screen -- which is what should actually make it hold up
+        # anywhere, rather than needing yet another number tuned to
+        # yet another environment.
+        entry.set_halign(Gtk.Align.FILL)
+        entry.set_hexpand(False)
+        entry_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        left_spacer = Gtk.Box(hexpand=True)
+        right_spacer = Gtk.Box(hexpand=True)
+        entry_row.append(left_spacer)
+        entry_row.append(entry)
+        entry_row.append(right_spacer)
         score = initial_stats.get(ability, 0)
         entry.set_text(str(score) if score else "")
         ability_entries[ability] = entry
-        row_card.append(_labeled_block(ABILITY_ABBREVIATIONS[ability], entry, _ABILITY_BLOCK_WIDTH))
+        row_card.append(_labeled_block(ABILITY_ABBREVIATIONS[ability], entry_row, _ABILITY_BLOCK_WIDTH, expand_controls=True))
 
         row_card.append(_section_separator())
         row_card.append(_build_save_block(ability))
