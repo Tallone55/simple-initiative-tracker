@@ -1,6 +1,6 @@
 [project]
 name = "simple-initiative-tracker"
-version = "1.0.0rc7"
+version = "1.0.0rc8"
 description = "A tabletop initiative tracker built on gtk4 and PyGObject."
 readme = "README.md"
 requires-python = ">=3.14"
