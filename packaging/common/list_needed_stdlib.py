@@ -36,6 +36,17 @@ import sys
 
 
 def main():
+    # Forces LF-only stdout regardless of platform. Without this,
+    # Python's default text-mode stdout on Windows translates \n to
+    # \r\n -- and when a bash `while read` loop consumes that output
+    # line by line, `read` strips the \n delimiter but leaves the
+    # preceding \r attached to the variable, silently corrupting
+    # every single name it reads (confirmed directly: a real build
+    # log showed a 100% failure rate, every one of 78 traced names
+    # failing its own file-existence check, which is exactly what a
+    # stray trailing \r on every line produces).
+    sys.stdout.reconfigure(newline="\n")
+
     bin_dir = os.path.abspath(sys.argv[1])
     sys.path.insert(0, bin_dir)
 

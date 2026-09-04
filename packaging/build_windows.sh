@@ -94,6 +94,14 @@ if [ -z "$NEEDED_STDLIB_NAMES" ]; then
     exit 1
 fi
 while IFS= read -r name; do
+    # Strips a trailing \r defensively, on top of the fix in
+    # list_needed_stdlib.py itself -- belt-and-suspenders, since this
+    # exact corruption (every single traced name silently gaining an
+    # invisible trailing \r, and therefore never matching a real
+    # path) is confirmed to have happened for a reason external to
+    # this loop's own logic, and there's no real cost to also
+    # guarding here against any other source of stray \r.
+    name="${name%$'\r'}"
     [ -z "$name" ] && continue
     src="$MINGW_ROOT/lib/python$PYTHON_VERSION/$name"
     if [ ! -e "$src" ]; then
