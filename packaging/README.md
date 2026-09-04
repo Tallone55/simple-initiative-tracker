@@ -10,9 +10,9 @@ bundle (`.app`).
 ```
 packaging/
   common/
-    app_metadata.sh     -- shared name/id constants, sourced by every script
-    version.sh           -- reads $VERSION from pyproject.toml (single source of truth)
-  debian/                -- control/postinst/desktop-entry/icon inputs for build_deb.sh
+    app_metadata.sh      -- packaging-only identity constants (display name, launcher command, bundle id)
+    project_metadata.sh  -- reads $VERSION/$PKG_NAME/$DESCRIPTION/$MAINTAINER from pyproject.toml (single source of truth)
+  net.mystive.sit.svg    -- app icon, shared by all four build scripts
   linux/
     collect_shared_libs.py  -- ldd-based .so dependency closure walker
   windows/
@@ -81,11 +81,13 @@ have the full detail on what gets bundled and why).
 
 ## Design notes
 
-**Version is single-sourced.** Every script reads `$VERSION` from
-`pyproject.toml` via `common/version.sh` -- nothing hand-maintains a
-second copy that can drift (this replaced an earlier setup where
-`debian/control`'s own `Version:` field had silently gone stale
-against `pyproject.toml`).
+**Version, package name, description, and maintainer are all
+single-sourced.** Every script reads them from `pyproject.toml` via
+`common/project_metadata.sh` -- nothing hand-maintains a second copy
+that can drift (this replaced an earlier setup where a standalone
+`debian/control` file's own `Version:`/`Maintainer:` fields could go
+stale against `pyproject.toml`, and where the app icon lived only
+under `debian/` despite every build script needing it).
 
 **The two portable builds (Linux, and in spirit Windows/macOS too)
 don't use PyInstaller.** They each walk the real shared-library

@@ -13,7 +13,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMMON_DIR="$SCRIPT_DIR/common"
 
 source "$COMMON_DIR/app_metadata.sh"
-source "$COMMON_DIR/version.sh"
+source "$COMMON_DIR/project_metadata.sh"
 
 BUILD_DIR="$SCRIPT_DIR/build/deb"
 PKGROOT="$BUILD_DIR/pkgroot"
@@ -36,8 +36,35 @@ mkdir -p \
 
 # -- control files ------------------------------------------------
 
-sed "s/^Version:.*/Version: $VERSION/" "$SCRIPT_DIR/debian/control" > "$PKGROOT/DEBIAN/control"
-cp "$SCRIPT_DIR/debian/postinst" "$PKGROOT/DEBIAN/postinst"
+cat > "$PKGROOT/DEBIAN/control" << CONTROL
+Package: $PKG_NAME
+Version: $VERSION
+Section: games
+Priority: optional
+Architecture: all
+Depends: python3 (>= 3.10), python3-gi, gir1.2-gtk-4.0 (>= 4.10)
+Maintainer: $MAINTAINER ($MAINTAINER_EMAIL)
+Description: $APP_NAME
+ $DESCRIPTION
+ Tracks creature hitpoints, armor class, and turn order, with support
+ for dice-notation and arithmetic expressions, CSV import/export, and
+ undo/redo. Supports some (hacked-together) Cinnamon theming.
+CONTROL
+
+cat > "$PKGROOT/DEBIAN/postinst" << 'POSTINST'
+#!/bin/sh
+set -e
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q /usr/share/applications || true
+fi
+
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
+fi
+
+exit 0
+POSTINST
 
 # -- application source ------------------------------------------------
 
@@ -53,9 +80,19 @@ LAUNCHER
 
 # -- desktop entry + icon ------------------------------------------------
 
-cp "$SCRIPT_DIR/debian/sit.desktop" "$PKGROOT/usr/share/applications/$BUNDLE_ID.desktop"
+cat > "$PKGROOT/usr/share/applications/$BUNDLE_ID.desktop" << DESKTOP
+[Desktop Entry]
+Type=Application
+Name=$APP_NAME
+Comment=Track combat initiative order for tabletop games
+Exec=$EXECUTABLE_NAME
+Icon=$BUNDLE_ID
+Categories=Game;Utility;
+Terminal=false
+StartupNotify=true
+DESKTOP
 
-ICON_SRC="$SCRIPT_DIR/debian/$BUNDLE_ID.svg"
+ICON_SRC="$SCRIPT_DIR/$BUNDLE_ID.svg"
 if [ ! -f "$ICON_SRC" ]; then
     echo "Error: expected icon at $ICON_SRC (not found)." >&2
     exit 1

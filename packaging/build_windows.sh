@@ -30,7 +30,7 @@ COMMON_DIR="$SCRIPT_DIR/common"
 WIN_DIR="$SCRIPT_DIR/windows"
 
 source "$COMMON_DIR/app_metadata.sh"
-source "$COMMON_DIR/version.sh"
+source "$COMMON_DIR/project_metadata.sh"
 
 if [ "${MSYSTEM:-}" != "MINGW64" ]; then
     echo "Error: this script must be run from an MSYS2 MINGW64 shell (found MSYSTEM='${MSYSTEM:-<unset>}')." >&2
@@ -136,7 +136,7 @@ cp "$MINGW_ROOT/share/glib-2.0/schemas/gschemas.compiled" "$STAGE_DIR/runtime/sh
 
 # -- icon ------------------------------------------------
 
-cp "$SCRIPT_DIR/debian/$BUNDLE_ID.svg" "$STAGE_DIR/runtime/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg"
+cp "$SCRIPT_DIR/$BUNDLE_ID.svg" "$STAGE_DIR/runtime/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg"
 
 # -- native launcher ------------------------------------------------
 

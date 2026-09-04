@@ -9,6 +9,7 @@ from undo_manager import UndoManager
 from session_manager import SessionManager
 from app_menus import build_hamburger_menu
 from app_mode import Mode, MODE_LABELS, MODE_TO_INT, mode_from_int
+from app_metadata import APP_NAME, VERSION, MAINTAINER, MAINTAINER_EMAIL, REPO_URL
 import creature_commands
 
 
@@ -94,6 +95,10 @@ class AppWindow(Gtk.ApplicationWindow):
         export_as_action = Gio.SimpleAction(name="export-as")
         export_as_action.connect("activate", self.on_export_as)
         self.add_action(export_as_action)
+
+        about_action = Gio.SimpleAction(name="about")
+        about_action.connect("activate", self.on_about)
+        self.add_action(about_action)
 
     def _build_headerbar(self):
         headerbar = Gtk.HeaderBar()
@@ -290,6 +295,16 @@ class AppWindow(Gtk.ApplicationWindow):
 
     def on_export_as(self, action, param):
         self.session.try_export_as()
+
+    def on_about(self, action, param):
+        about = Gtk.AboutDialog(transient_for=self, modal=True)
+        about.set_program_name(APP_NAME)
+        about.set_version(VERSION)
+        about.set_website(REPO_URL)
+        about.set_website_label("GitHub Repository")
+        about.set_authors([f"{MAINTAINER} <{MAINTAINER_EMAIL}>"])
+        about.set_license_type(Gtk.License.MIT_X11)
+        about.present()
 
     def on_close_request(self, window):
         return self.session.try_close()

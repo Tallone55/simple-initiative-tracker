@@ -1,10 +1,17 @@
 [project]
-name = "simple-initiative-tracker"
-version = "1.0.0rc8"
-description = "A tabletop initiative tracker built on gtk4 and PyGObject."
+name = "initiative-tracker"
+version = "1.0.0rc9"
+description = "A lightweight GTK4 combat initiative tracker for tabletop games."
 readme = "README.md"
 requires-python = ">=3.14"
+license = "MIT"
+authors = [
+    {name = "Thomas Hall", email = "hall.thomas.010@gmail.com"},
+]
 dependencies = [
     "meson>=1.11.2",
     "pygobject>=3.56.3",
 ]
+
+[project.urls]
+Repository = "https://github.com/Tallone55/simple-initiative-tracker"

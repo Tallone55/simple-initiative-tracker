@@ -1,30 +1,14 @@
 # Builds all four distribution archives (.deb, .tar.gz, .exe, .app)
-# from a single trigger -- the CI equivalent of packaging/build_all.sh,
-# except each format runs on its own native GitHub-hosted runner
-# instead of being limited to whichever ones the local machine
-# actually supports (see build_all.sh's own comment for why no single
-# machine can build all four itself).
+# from a single trigger, each on its own native GitHub-hosted runner.
 #
 # Trigger manually from the Actions tab (or `gh workflow run
-# release.yml`), or by pushing a tag starting with "v" (e.g. v1.0.0).
-# All four artifacts are attached to the workflow run either way; a
-# tag push additionally publishes them to a GitHub Release.
+# release.yml`), or by pushing a tag starting with "v". A tag push
+# also publishes the artifacts to a GitHub Release.
 #
-# actions/checkout, actions/upload-artifact, and actions/download-
-# artifact are pinned to the specific major version each one actually
-# switched its *default* runtime to Node 24 -- not just the first
-# version with "preliminary" Node 24 support while still defaulting
-# to the now-deprecated Node 20 (checkout@v5, upload-artifact@v6,
-# download-artifact@v7 respectively). softprops/action-gh-release@v3
-# is the same kind of pin (its v3.0.0 is the Node 24 migration).
-# astral-sh/setup-uv@v10.0.1 is pinned to a full, exact version rather
-# than a floating major tag like the others -- astral-sh discontinued
-# floating major/minor tags for this action entirely (a deliberate
-# supply-chain-security choice, after the tj-actions incident), so
-# "@v10" or "@v7" (the version that actually added Node 24 support)
-# wouldn't resolve to anything at all, only an exact "@vX.Y.Z" does.
-# Don't downgrade any of these to match some other pin elsewhere
-# without checking the reasoning above first.
+# Action versions are pinned to whichever one actually switched its
+# default runtime to Node 24, not just the first with preliminary
+# support. astral-sh/setup-uv is pinned to an exact version since
+# that action no longer supports floating major/minor tags at all.
 
 name: Build release archives
 
@@ -109,16 +93,6 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install GTK4 + PyGObject build dependencies
-        # GitHub's macOS runner images ship with aws/tap already
-        # tapped, which Homebrew's newer tap-trust enforcement then
-        # refuses to process during the implicit "brew update" that
-        # "brew install" runs first -- untapping it here (harmless;
-        # this project never uses anything from it) avoids that
-        # rather than trying to individually trust it. Disabling the
-        # auto-update outright is the more direct fix for the same
-        # root cause (that implicit update walking every tap on the
-        # runner, not just the ones this build actually needs) and
-        # also makes the step faster/more deterministic.
         run: |
           brew untap aws/tap || true
           HOMEBREW_NO_AUTO_UPDATE=1 brew install gtk4 libadwaita pygobject3 gobject-introspection librsvg
@@ -127,9 +101,6 @@ jobs:
         run: ./packaging/build_macos.sh
 
       - name: Zip the .app for upload
-        # actions/upload-artifact flattens .app bundle internals into a
-        # loose file tree rather than preserving it as one item -- zipped
-        # first so the download is the bundle, not its unpacked contents.
         run: |
           cd packaging/dist
           zip -rq "Simple Initiative Tracker.app.zip" "Simple Initiative Tracker.app"

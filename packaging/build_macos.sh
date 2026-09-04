@@ -24,7 +24,7 @@ COMMON_DIR="$SCRIPT_DIR/common"
 MACOS_DIR="$SCRIPT_DIR/macos"
 
 source "$COMMON_DIR/app_metadata.sh"
-source "$COMMON_DIR/version.sh"
+source "$COMMON_DIR/project_metadata.sh"
 
 # Dereferences symlinks (rather than cp -a/ditto, which both hit
 # "File exists" errors partway through Homebrew's heavily-aliased
@@ -179,7 +179,7 @@ codesign --force --sign - "$PYTHON_BIN" 2>/dev/null || true
 
 # -- icon ------------------------------------------------
 
-ICON_SVG="$SCRIPT_DIR/debian/$BUNDLE_ID.svg"
+ICON_SVG="$SCRIPT_DIR/$BUNDLE_ID.svg"
 ICONSET_DIR="$BUILD_DIR/$BUNDLE_ID.iconset"
 rm -rf "$ICONSET_DIR"
 mkdir -p "$ICONSET_DIR"

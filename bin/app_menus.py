@@ -14,11 +14,21 @@ def _file_actions_menu():
     return menu
 
 
+def _about_menu():
+    menu = Gio.Menu()
+    menu.append("About", "win.about")
+    return menu
+
+
 def build_hamburger_menu():
-    return _file_actions_menu()
+    menu = Gio.Menu()
+    menu.append_section(None, _file_actions_menu())
+    menu.append_section(None, _about_menu())
+    return menu
 
 
 def build_menubar():
     menu = Gio.Menu()
     menu.append_submenu("File", _file_actions_menu())
+    menu.append_submenu("Help", _about_menu())
     return menu
