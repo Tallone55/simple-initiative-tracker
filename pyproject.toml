@@ -1,5 +1,5 @@
 [project]
-name = "initiative-tracker"
+name = "simple-initiative-tracker"
 version = "1.0.0rc9"
 description = "A lightweight GTK4 combat initiative tracker for tabletop games."
 readme = "README.md"
