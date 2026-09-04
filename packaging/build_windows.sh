@@ -71,22 +71,40 @@ SITE_PACKAGES="$MINGW_ROOT/lib/python$PYTHON_VERSION/site-packages"
 
 cp -a "$MINGW_ROOT/bin"/python3*.dll "$STAGE_DIR/runtime/python/" 2>/dev/null || true
 cp -a "$MINGW_ROOT/bin/python3.exe" "$MINGW_ROOT/bin/pythonw.exe" "$STAGE_DIR/runtime/python/"
-# Copies the whole lib/pythonX.Y tree recursively, then strips
-# site-packages, rather than trying to selectively cherry-pick
-# specific globs/subdirectories -- matching build_linux_portable.sh's
-# own approach. An earlier version of this used `cp *.py *.zip` plus
-# two explicitly-named directories (encodings, lib-dynload), which
-# missed every other stdlib *package* (a subdirectory with its own
-# __init__.py, not a bare .py file): collections, importlib, json,
-# email, and dozens more never got copied at all, since a `*.py` glob
-# doesn't match directories or recurse into them. That's a
-# guaranteed-broken import a `*.py` glob can silently produce -- e.g.
-# `import gi` transitively needs pkgutil, which needs collections,
-# which was never in the bundle.
-mkdir -p "$STAGE_DIR/runtime/python/lib"
-cp -a "$MINGW_ROOT/lib/python$PYTHON_VERSION" "$STAGE_DIR/runtime/python/lib/"
-rm -rf "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/site-packages"/*
 
+# Copies only the standard-library modules/packages this app actually
+# imports, determined by running list_needed_stdlib.py against the
+# real interpreter being packaged -- rather than either selectively
+# guessing an include list by hand (which is what silently broke the
+# `collections` import before: a `*.py` glob doesn't match package
+# directories, and nobody had enumerated the true, complete list) or
+# copying the entire stdlib and guessing at an exclude list instead
+# (which trades that risk for an unbounded, unverified include set,
+# no more principled than the include-list guess it replaced). This
+# is the same dependency-tracing technique packagers like PyInstaller
+# use internally, applied directly instead of adopting the full tool
+# (which has its own known friction with PyGObject/GTK4's
+# introspection-based imports). See list_needed_stdlib.py's own
+# docstring for why dynamic import tracing is sufficient here.
+BUNDLED_STDLIB="$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION"
+mkdir -p "$BUNDLED_STDLIB"
+NEEDED_STDLIB_NAMES="$("$MINGW_ROOT/bin/python3" "$COMMON_DIR/list_needed_stdlib.py" "$PROJECT_ROOT/bin")"
+if [ -z "$NEEDED_STDLIB_NAMES" ]; then
+    echo "Error: list_needed_stdlib.py produced no output -- the trace itself failed." >&2
+    exit 1
+fi
+while IFS= read -r name; do
+    [ -z "$name" ] && continue
+    src="$MINGW_ROOT/lib/python$PYTHON_VERSION/$name"
+    if [ ! -e "$src" ]; then
+        echo "Warning: traced stdlib name '$name' not found at $src -- skipping." >&2
+        continue
+    fi
+    cp -a "$src" "$BUNDLED_STDLIB/"
+done <<< "$NEEDED_STDLIB_NAMES"
+find "$BUNDLED_STDLIB" -name '__pycache__' -type d -prune -exec rm -rf {} +
+
+mkdir -p "$BUNDLED_STDLIB/site-packages"
 for pkg in gi cairo; do
     cp -a "$SITE_PACKAGES/$pkg" "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/site-packages/"
 done
@@ -157,7 +175,23 @@ x86_64-w64-mingw32-gcc -municode -mwindows -O2 \
 # -- archive (self-extracting .exe) ------------------------------------------------
 
 SEVEN_ZIP="$(command -v 7z || command -v 7z.exe || true)"
-SFX_MODULE="$(find "$MINGW_ROOT" -iname '7zS2.sfx' -o -iname '7zSD.sfx' -o -iname '7z.sfx' 2>/dev/null | head -1)"
+# Broadened to cover the SFX module names used across different
+# 7-Zip distribution channels -- 7zS2.sfx/7zSD.sfx/7z.sfx were the
+# only three checked before, and none matched what
+# mingw-w64-x86_64-7zip actually installs in at least one real CI
+# run, despite the package itself being present (i.e. $SEVEN_ZIP
+# resolved, $SFX_MODULE didn't). Rather than guess at yet another
+# single exact name with no way to confirm it here, this also lists
+# whatever *.sfx files genuinely exist under $MINGW_ROOT when none of
+# the known names match, so a future run's own output pins down the
+# real filename (or confirms this package ships no SFX module at all,
+# in which case the .zip fallback isn't a bug to keep chasing -- it's
+# the correct output for this toolchain, and a single-.exe
+# distributable would need an SFX module obtained separately).
+SFX_MODULE="$(find "$MINGW_ROOT" \( \
+    -iname '7zs2.sfx' -o -iname '7zs2con.sfx' -o -iname '7zsd.sfx' \
+    -o -iname '7zs.sfx' -o -iname '7z.sfx' -o -iname '7zcon.sfx' \
+    \) 2>/dev/null | head -1)"
 
 OUTPUT_EXE="$DIST_DIR/${BUNDLE_NAME}.exe"
 rm -f "$OUTPUT_EXE"
@@ -183,8 +217,19 @@ SFXCONFIG
     echo "Built: $OUTPUT_EXE"
     echo "Run with:   double-click ${BUNDLE_NAME}.exe -- it extracts itself and launches ${APP_NAME}."
 else
-    echo "Warning: 7z (with an SFX module) not found -- install mingw-w64-x86_64-7zip for a" >&2
+    echo "Warning: 7z (with a recognized SFX module) not found -- install mingw-w64-x86_64-7zip for a" >&2
     echo "         single-.exe distributable. Falling back to a .zip of the portable folder." >&2
+    if [ -n "$SEVEN_ZIP" ]; then
+        OTHER_SFX="$(find "$MINGW_ROOT" -iname '*.sfx' 2>/dev/null)"
+        if [ -n "$OTHER_SFX" ]; then
+            echo "         7z itself was found, but none of the expected SFX module names matched." >&2
+            echo "         *.sfx files that do exist under $MINGW_ROOT:" >&2
+            echo "$OTHER_SFX" | sed 's/^/           /' >&2
+        else
+            echo "         7z itself was found, but no *.sfx file exists anywhere under $MINGW_ROOT --" >&2
+            echo "         this mingw-w64-x86_64-7zip install doesn't ship an SFX module at all." >&2
+        fi
+    fi
     ZIP_FILE="$DIST_DIR/${BUNDLE_NAME}.zip"
     (cd "$BUILD_DIR" && rm -f "$ZIP_FILE" && zip -rq "$ZIP_FILE" "$BUNDLE_NAME")
 
