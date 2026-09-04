@@ -1,31 +1,18 @@
 #!/usr/bin/env python3
 """Windows counterpart to linux/collect_shared_libs.py: resolves the
 full DLL dependency closure for one or more seed DLLs/executables and
-copies every resolved DLL into an output directory, so the portable
-Windows build is self-contained the same way the Linux portable
-bundle and the macOS .app bundle are -- GTK4, GLib, Pango, cairo,
-HarfBuzz, gdk-pixbuf, and their MSYS2-provided dependencies all travel
-with the app.
+copies every resolved DLL into an output directory.
 
-Meant to run under an MSYS2 MINGW64 shell, using `objdump` (part of
-MSYS2's binutils, always present alongside a mingw-w64 toolchain) to
-read each PE file's import table, then resolving each imported DLL
-name against the same search path order the Windows loader itself
-uses (application directory first, then the provided search
-directories -- MSYS2's mingw64/bin here).
+Meant to run under an MSYS2 MINGW64 shell, using `objdump` to read
+each PE file's import table, then resolving each imported DLL name
+against the Windows loader's own search order.
 
-A denylist excludes DLLs the *host* Windows install must supply
-instead of the bundle -- the core OS/CRT DLL family (kernel32,
-ntdll, user32, gdi32, the api-ms-win-* virtual DLLs, ...) -- since
-these are versioned and serviced by Windows itself; bundling a
-possibly-mismatched copy is far more likely to break things than
-help, the same reasoning collect_shared_libs.py applies to glibc on
-Linux.
+A denylist excludes DLLs the host Windows install must supply
+instead of the bundle (kernel32, ntdll, user32, the api-ms-win-*
+virtual DLLs, etc.).
 
 Usage:
     collect_dlls.py --out DIR --search-path DIR [--search-path DIR ...] SEED [SEED ...]
-
-Each SEED is a path to a DLL or executable to start from.
 """
 
 import argparse
@@ -86,18 +73,13 @@ _IMPORT_LINE_RE = re.compile(r"^\s*DLL Name:\s*(\S+)\s*$", re.IGNORECASE | re.MU
 
 
 def _imported_dll_names(path):
-    """Direct DLL imports of `path`, read from `objdump -p`'s "DLL
-    Name:" lines -- one per imported DLL, however many symbols are
-    actually pulled from it."""
     result = subprocess.run(["objdump", "-p", str(path)], capture_output=True, text=True)
     return set(_IMPORT_LINE_RE.findall(result.stdout))
 
 
 def _resolve(name, search_paths):
-    """The first existing DLL named `name` (case-insensitively, as
-    Windows itself treats filenames) across `search_paths`, in order
-    -- mirrors the Windows loader's own search order for a bundle
-    that has no DLLs of its own alongside the executable yet."""
+    """The first existing DLL named `name` (case-insensitive) across
+    `search_paths`, in order."""
     for directory in search_paths:
         for candidate in Path(directory).glob("*"):
             if candidate.is_file() and candidate.name.lower() == name.lower():
@@ -106,9 +88,8 @@ def _resolve(name, search_paths):
 
 
 def collect_closure(seeds, search_paths):
-    """Recursively resolves every seed's full DLL import closure.
-    Returns {dll_name: resolved_path}, denylisted and unresolvable
-    (host-supplied, or simply not found) entries excluded."""
+    """Returns {dll_name: resolved_path}, denylisted/unresolvable
+    entries excluded."""
     closure = {}
     queue = list(seeds)
     seen = set()

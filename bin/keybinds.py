@@ -1,11 +1,8 @@
-"""Central keybind configuration: maps "app.<name>"/"win.<name>" action
-names to GTK accelerator strings. Application.py iterates this dict and
-calls set_accels_for_action for each entry, so shortcuts are changed
-here only."""
+"""Central keybind config: maps action names to GTK accelerators."""
 
 KEYBINDS = {
     "app.quit": ["<Control>q"],
     "app.undo": ["<Control>z"],
-    "app.redo": ["<Control>y", "<Control><Shift>z"],  # Windows + GNOME conventions
+    "app.redo": ["<Control>y", "<Control><Shift>z"],
     "win.new": ["<Control>n"],
 }

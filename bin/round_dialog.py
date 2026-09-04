@@ -1,6 +1,4 @@
-"""Modal dialog for manually setting the round counter, built from its
-.ui file. A plain function rather than a method on AppWindow, matching
-creature_dialogs.py/session_dialogs.py."""
+"""Modal dialog for manually setting the round counter."""
 
 from gi.repository import Gtk
 
@@ -10,12 +8,7 @@ from expressions import evaluate_int_expression, ExpressionError
 
 def open_edit_round_dialog(parent, current_round, on_committed):
     """on_committed(new_round: int) is called after a successful
-    Confirm, once the dialog has already been destroyed. Only accepts
-    a positive whole number (or an expression evaluating to one) --
-    round numbers below 1 don't mean anything for turn tracking, so
-    Confirm is refused (with an inline error) rather than silently
-    clamping. A blank entry evaluates to 0 (see expressions.py),
-    which then fails this same minimum-value check."""
+    Confirm, once the dialog has already been destroyed."""
     builder = Gtk.Builder()
     builder.add_from_file(EDIT_ROUND_UI_PATH)
 

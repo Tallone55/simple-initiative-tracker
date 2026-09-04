@@ -14,24 +14,11 @@ import creature_commands
 
 class AppWindow(Gtk.ApplicationWindow):
     def __init__(self, *args, **kwargs):
-        """Builds the whole UI: headerbar, creature table, status line.
-        Creature mutation/undo logic lives in creature_commands.py;
-        file/session logic lives in session_manager.py -- this class
-        owns widget construction and wires the two together via
-        after_database_mutation."""
         super().__init__(*args, **kwargs)
         self.set_default_size(760, 480)
 
         self.initiative_database = InitiativeDatabase()
         self.undo_manager = UndoManager()
-        # A fresh, empty database starts in Simple mode (see
-        # InitiativeDatabase.__init__/.clear()) -- loading a file
-        # that was saved in 5e Combat mode switches this via
-        # _handle_state_changed below, same as it does for every
-        # other piece of state a load can change. See the
-        # mode-switcher popover (_build_headerbar) and app_mode.py
-        # for the full read/write path (CSV_HEADERS' second trailing
-        # header-row cell).
         self.mode = Mode.SIMPLE
         self.session = SessionManager(
             window=self,
@@ -58,10 +45,6 @@ class AppWindow(Gtk.ApplicationWindow):
         )
         self.set_child(root)
 
-        # The round counter itself is the edit trigger -- a single
-        # button reading "Round N", rather than a separate label plus
-        # icon button -- styled flat in styling.py so it still reads
-        # as plain centered text at rest.
         self.round_button = Gtk.Button(label="Round 1")
         self.round_button.add_css_class("round-counter")
         self.round_button.set_has_frame(False)
@@ -71,13 +54,6 @@ class AppWindow(Gtk.ApplicationWindow):
         root.append(self.round_button)
         self.update_round_label()
 
-        # Native row selection gives full-row highlighting for the
-        # current turn, driven by _sync_selection (called after any
-        # real state change) rather than raw clicks -- a click can
-        # still cause a transient native selection (column_factory.py),
-        # overwritten next time state actually changes. Turn activation
-        # is via the native "activate" signal, which fires on
-        # double-click since single_click_activate is False below.
         self.selection_model = Gtk.SingleSelection(model=self.initiative_database.sorted_model)
         self.selection_model.set_autoselect(False)
         self.selection_model.set_can_unselect(True)
@@ -97,24 +73,12 @@ class AppWindow(Gtk.ApplicationWindow):
 
         self._sync_selection()
 
-        # Intercept the titlebar close button (and, via Application.quit
-        # routing app.quit through window.close(), Ctrl+Q / any "Quit"
-        # menu item too) so unsaved changes get a chance to be exported
-        # first instead of silently discarded.
         self.connect("close-request", self.on_close_request)
-
-        # Auto-load whatever CSV was last opened/saved, if the cache
-        # points at one that still exists. Happens last, after
-        # everything above is fully constructed, since it goes through
-        # the same import path that touches selection/round-label/etc.
         self.session.load_cached_file_on_startup()
 
     # -- construction helpers ------------------------------------------------
 
     def _register_actions(self):
-        """Registers the win.* actions the headerbar hamburger menu,
-        the traditional File menu (app_menus.py), and keybinds.py's
-        Ctrl+N all reference by name."""
         new_action = Gio.SimpleAction(name="new")
         new_action.connect("activate", self.on_new)
         self.add_action(new_action)
@@ -132,22 +96,10 @@ class AppWindow(Gtk.ApplicationWindow):
         self.add_action(export_as_action)
 
     def _build_headerbar(self):
-        """GNOME-style headerbar: creature/turn actions at the start,
-        the round counter centered below (see __init__), and a
-        hamburger menu at the end for New/Import/Export/Export As (see
-        app_menus.py). Plain Gtk.HeaderBar -- window-control theming is
-        handled directly in cinnamon_theme.py rather than by relying on
-        Adw.HeaderBar."""
         headerbar = Gtk.HeaderBar()
 
         add_button = Gtk.Button(label="Add Creature")
         add_button.add_css_class("action-add")
-        # Gtk.HeaderBar conventionally renders packed buttons "flat"
-        # (no visible fill until hover) by default -- this alone wasn't
-        # enough to get the fill to render (styling.py's selectors
-        # needed to be scoped more specifically too), but it's still
-        # correct to have: it stops the button from requesting "flat"
-        # behavior on its own, independent of whatever CSS wins.
         add_button.set_has_frame(True)
         add_button.connect("clicked", self.on_add_creature_clicked)
         headerbar.pack_start(add_button)
@@ -158,31 +110,9 @@ class AppWindow(Gtk.ApplicationWindow):
         next_turn_button.connect("clicked", self.on_next_turn_clicked)
         headerbar.pack_start(next_turn_button)
 
-        # No custom title_widget here -- the headerbar shows its normal
-        # title text (SessionManager already manages this via
-        # self.set_title(), including the "*" unsaved-changes prefix).
-        # The round counter lives in its own row below the headerbar
-        # instead (see __init__), since the two headerbar buttons above
-        # left no good place for a centered title widget anyway.
-        #
-        # The mode switcher deliberately does NOT take over the
-        # headerbar's center/title-widget slot the way GNOME
-        # Calculator's own mode switcher does -- doing that here would
-        # replace the on-screen filename/unsaved-indicator (the "*"
-        # prefix from SessionManager) with the mode switcher instead
-        # of alongside it, which trades away real, already-working
-        # feedback for closer visual mimicry of gnome-calculator.
-
-        # Gtk.HeaderBar.pack_end() stacks inward from the true edge as
-        # each call is made -- the *first* pack_end() call ends up
-        # closest to the actual edge (right next to the window's own
-        # native minimize/maximize/close controls), and each
-        # subsequent call lands one step further toward the title/
-        # content, not the other way around. So to get, left to right,
-        # "...title | mode switcher | separator | hamburger | window
-        # controls", the hamburger has to be packed first, then the
-        # separator, then the mode switcher last.
-
+        # pack_end() stacks inward from the edge: first call ends up
+        # closest to the window controls, so order here (hamburger,
+        # separator, mode button) puts the mode button innermost.
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
         menu_button.set_menu_model(build_hamburger_menu())
@@ -203,10 +133,6 @@ class AppWindow(Gtk.ApplicationWindow):
         return headerbar
 
     def _build_mode_popover(self):
-        """Popover for the headerbar mode switcher, gnome-calculator
-        style: one row per Mode, a checkmark on whichever is active,
-        clicking a different one switches to it and closes the
-        popover."""
         popover = Gtk.Popover()
         list_box = Gtk.ListBox()
         list_box.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -235,13 +161,6 @@ class AppWindow(Gtk.ApplicationWindow):
         return popover
 
     def _set_mode(self, mode):
-        """Switches the app's display/data mode: updates the switcher
-        button/popover checkmarks, shows/hides the 5e Combat-only
-        stats column, and mirrors the change onto
-        self.initiative_database.mode (as a plain int -- see
-        app_mode.py) so the next export captures whatever mode is
-        actually active, without needing some separate explicit save
-        step to catch up."""
         if mode is self.mode:
             return
         self.mode = mode
@@ -252,30 +171,14 @@ class AppWindow(Gtk.ApplicationWindow):
         self.creature_columns.set_combat_columns_visible(mode is Mode.COMBAT_5E)
 
     def _handle_state_changed(self, resort):
-        """SessionManager's on_state_changed callback -- fires after
-        any load that replaces the database wholesale (Open, Import,
-        New), where more than just the creature list may have
-        changed. Syncs the mode switcher to whatever
-        self.initiative_database.mode the load just set (a plain int;
-        mode_from_int falls back to Simple for anything it doesn't
-        recognize) before the normal post-mutation refresh runs."""
         self._set_mode(mode_from_int(self.initiative_database.mode))
         self.after_database_mutation(resort=resort, mark_dirty=False)
 
     # -- shared post-mutation refresh -------------------------------------
 
     def after_database_mutation(self, resort=False, mark_dirty=True):
-        """The single place every mutation (add/remove/edit/next-turn/
-        turn-activation/new/import/undo/redo) routes through
-        afterwards, so sorting, the current-turn selection, and the
-        round display always stay in sync with the database.
-
-        mark_dirty=False is used only via SessionManager's
-        on_state_changed callback (i.e. only for import), which
-        replaces the entire in-memory state with exactly what's on
-        disk -- the result is, by definition, already in sync with a
-        file, so it shouldn't be flagged as needing export.
-        """
+        """The single place every mutation routes through afterwards to
+        keep sorting, selection, and the round display in sync."""
         if resort:
             self.initiative_database.resort()
         self._sync_selection()
@@ -284,11 +187,6 @@ class AppWindow(Gtk.ApplicationWindow):
             self.session.mark_dirty()
 
     def _sync_selection(self):
-        """Moves native row selection to match current_creature. This is
-        the only thing that changes selection -- not GTK's own
-        click-to-select behavior -- so selection always reflects whose
-        turn it actually is rather than wherever the user last clicked.
-        """
         current = self.initiative_database.current_creature
         if current is None:
             self.selection_model.set_selected(Gtk.INVALID_LIST_POSITION)
@@ -300,15 +198,9 @@ class AppWindow(Gtk.ApplicationWindow):
                 return
 
     def update_round_label(self):
-        """Refreshes the round-counter button's label to match the
-        database's current round_number."""
         self.round_button.set_label(f"Round {self.initiative_database.round_number}")
 
     def on_edit_round_clicked(self, button):
-        """Opens the Set Round dialog. Not routed through
-        creature_commands/undo_manager -- like Next Turn and turn
-        activation, manually setting the round is out of scope for
-        the undo history."""
         open_edit_round_dialog(self, self.initiative_database.round_number, self._handle_round_committed)
 
     def _handle_round_committed(self, new_round):
@@ -317,31 +209,21 @@ class AppWindow(Gtk.ApplicationWindow):
         self.session.mark_dirty()
 
     def show_status(self, message):
-        """Displays a one-line status message below the creature table
-        (import/export results, errors, etc.). Called by SessionManager
-        too, via its window reference."""
         self.status_label.set_text(message)
 
     # -- undo / redo ------------------------------------------------
 
     def perform_undo(self):
-        """Entry point for the app.undo action (Ctrl+Z). Commands built
-        in creature_commands.py only mutate data, not the UI, so a
-        refresh is triggered here unconditionally after every undo."""
         self.undo_manager.undo()
         self.after_database_mutation(resort=True)
 
     def perform_redo(self):
-        """Entry point for the app.redo action (Ctrl+Y / Ctrl+Shift+Z)."""
         self.undo_manager.redo()
         self.after_database_mutation(resort=True)
 
     # -- column factory callbacks ------------------------------------------------
 
     def _handle_edit_requested(self, creature_obj, field_name, display_name):
-        """Opens the generic text-field edit dialog for one creature
-        field; the undo/redo command itself is built in
-        creature_commands.py."""
         def on_committed(old_value, new_value, resort):
             creature_commands.edit_field(
                 self.undo_manager, creature_obj, field_name, display_name, old_value, new_value
@@ -351,9 +233,6 @@ class AppWindow(Gtk.ApplicationWindow):
         open_edit_dialog(self, creature_obj, field_name, display_name, on_committed)
 
     def _handle_hitpoints_edit_requested(self, creature_obj):
-        """Opens the dedicated hitpoints dialog; the undo/redo command
-        (covering current, max, and temporary HP together) is built in
-        creature_commands.py."""
         def on_committed(old_hp, old_max, old_temp, new_hp, new_max, new_temp):
             creature_commands.edit_hitpoints(
                 self.undo_manager, creature_obj, old_hp, old_max, old_temp, new_hp, new_max, new_temp
@@ -363,9 +242,6 @@ class AppWindow(Gtk.ApplicationWindow):
         open_edit_hitpoints_dialog(self, creature_obj, on_committed)
 
     def _handle_stats_requested(self, creature_obj):
-        """Opens the full 5e stat-block editor (creature_stats_dialog.py)
-        for an existing creature -- the undo/redo command (covering the
-        whole stat block as one action) is built in creature_commands.py."""
         old_stats = {field: getattr(creature_obj, field) for field in creature_commands.STATS_FIELDS}
 
         def on_committed(new_stats):
@@ -377,19 +253,12 @@ class AppWindow(Gtk.ApplicationWindow):
         open_creature_stats_dialog(self, old_stats, on_committed)
 
     def _handle_remove_requested(self, creature_obj):
-        """Removes a creature via creature_commands, which also
-        registers the matching undo/redo command."""
         resort = creature_commands.remove_creature(
             self.initiative_database, self.undo_manager, creature_obj
         )
         self.after_database_mutation(resort=resort)
 
     def _on_row_activated(self, column_view, position):
-        """Native Gtk.ColumnView "activate" signal -- fires on
-        double-click (single_click_activate is False). Manually sets
-        whose turn it is, distinct from Next Turn advancing the order.
-        Not undoable -- turn activation is out of scope for the undo
-        history."""
         item = self.selection_model.get_item(position)
         if item is not None:
             self.initiative_database.set_current_creature(item)
@@ -398,28 +267,17 @@ class AppWindow(Gtk.ApplicationWindow):
     # -- headerbar / menu actions ------------------------------------------------
 
     def on_next_turn_clicked(self, button):
-        """Advances turn order by one creature (not undoable -- turn
-        advancement is out of scope for the undo history)."""
         self.initiative_database.next_turn()
         self.after_database_mutation(resort=False)
 
     def on_add_creature_clicked(self, button):
-        """Opens the Add Creature dialog."""
         open_add_creature_dialog(self, self.mode, self._handle_creatures_added)
 
     def _handle_creatures_added(self, creatures):
-        """Adds one or more new creatures via creature_commands, which
-        also registers the matching undo/redo command (a bulk add
-        counts as a single undo step)."""
         resort = creature_commands.add_creatures(self.initiative_database, self.undo_manager, creatures)
         self.after_database_mutation(resort=resort)
 
     # -- new / import / export / close ------------------------------------------------
-    #
-    # All actual logic lives in SessionManager (session_manager.py) --
-    # these are thin win.* action handlers (activate signal: action,
-    # param), matching the hamburger menu, the traditional File menu,
-    # and keybinds.py's Ctrl+N.
 
     def on_new(self, action, param):
         self.session.try_new()
@@ -434,9 +292,4 @@ class AppWindow(Gtk.ApplicationWindow):
         self.session.try_export_as()
 
     def on_close_request(self, window):
-        """Gtk.Window's "close-request" signal -- fired by the titlebar
-        close button, and by window.close() (which app.quit routes
-        through). Returning True blocks the default close so
-        SessionManager can ask first; returning False lets it proceed
-        immediately."""
         return self.session.try_close()

@@ -7,12 +7,8 @@ from ui_paths import UNSAVED_CHANGES_UI_PATH
 
 
 def open_unsaved_changes_dialog(parent, on_export, on_discard, message=None):
-    """on_export() runs if the user chooses to export first -- the
-    caller proceeds (closing, importing, etc.) once the export
-    actually succeeds. on_discard() runs if the user proceeds without
-    exporting. Neither runs on Cancel. message overrides the default
-    wording, since this dialog is reused for both closing and
-    importing."""
+    """on_export()/on_discard() run on the corresponding choice;
+    neither runs on Cancel. message overrides the default wording."""
     builder = Gtk.Builder()
     builder.add_from_file(UNSAVED_CHANGES_UI_PATH)
 

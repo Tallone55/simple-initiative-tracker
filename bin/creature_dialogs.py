@@ -1,8 +1,5 @@
 """Modal dialogs for creating and editing creatures, built from their
-.ui files. Plain functions rather than methods on AppWindow -- each
-takes the parent window and a callback to invoke on success, so they
-don't need to know anything about AppWindow's internals.
-"""
+.ui files."""
 
 from gi.repository import Gtk
 
@@ -13,18 +10,12 @@ from app_mode import Mode
 from creature_stats_dialog import open_creature_stats_dialog
 from creature_commands import STATS_FIELDS
 
-# Fields edited as free-form text rather than an arithmetic/dice
-# expression via open_edit_dialog. "name" falls back to "Unnamed" when
-# left blank; "status" allows an empty string (no status).
 _STRING_FIELDS = {"name", "status"}
 
 
 def open_edit_dialog(parent, creature_obj, field_name, display_name, on_committed):
-    """on_committed(old_value, new_value, resort: bool) is called after a
-    successful update, once the dialog has already been destroyed --
-    both values are passed (rather than just applying the change here
-    and reporting success) so the caller can build an undo/redo command
-    from them."""
+    """on_committed(old_value, new_value, resort: bool) is called after
+    a successful update, once the dialog has already been destroyed."""
     builder = Gtk.Builder()
     builder.add_from_file(EDIT_FIELD_UI_PATH)
 
@@ -68,14 +59,8 @@ def open_edit_dialog(parent, creature_obj, field_name, display_name, on_committe
 
 
 def open_edit_hitpoints_dialog(parent, creature_obj, on_committed):
-    """Dedicated hitpoints editor: current, max, and temporary HP as
-    plain text entries, each evaluated as an arithmetic expression on
-    Update (e.g. edit "23" to "23+5" to heal 5). A Temp HP expression
-    that evaluates negative is applied to hitpoints instead (damage
-    exceeding remaining temp HP), rather than clamped to a negative
-    temp HP value. on_committed(old_hitpoints, old_max, old_temp,
-    new_hitpoints, new_max, new_temp) is called after a successful
-    update, once the dialog has already been destroyed."""
+    """on_committed(old_hitpoints, old_max, old_temp, new_hitpoints,
+    new_max, new_temp) is called after a successful update."""
     builder = Gtk.Builder()
     builder.add_from_file(EDIT_HITPOINTS_UI_PATH)
 
@@ -119,10 +104,6 @@ def open_edit_hitpoints_dialog(parent, creature_obj, on_committed):
             return
 
         if new_temp < 0:
-            # A negative Temp HP entry represents damage overflowing
-            # past whatever temporary HP was available -- applied
-            # directly to hitpoints instead of clamping to a
-            # nonsensical negative temp HP value.
             new_current += new_temp
             new_temp = 0
 
@@ -146,18 +127,12 @@ def open_edit_hitpoints_dialog(parent, creature_obj, on_committed):
 
 def open_add_creature_dialog(parent, mode, on_added):
     """on_added(creatures: list[Creature]) is called after a successful
-    add, once the dialog has already been destroyed. A list is used even
-    for the common single-creature case so callers have one code path.
+    add, once the dialog has already been destroyed.
 
-    mode controls how the 5e stat block is entered: Simple mode
-    exposes just a plain Dexterity field (for breaking initiative
-    ties); 5e Combat mode replaces it with an "Edit Stats..." button
-    that opens the same full stat-block editor the crossed-swords
-    table column uses (creature_stats_dialog.py) -- since Add Creature
-    can create several creatures at once, whatever's set there is
-    identical ("propagated") across every creature in that batch,
-    rather than asked for once per creature.
-    """
+    In 5e Combat mode, the Dexterity field is replaced by an Edit
+    Stats button opening the same stat-block editor the crossed-swords
+    table column uses; whatever's set there is applied identically to
+    every creature in the batch."""
     builder = Gtk.Builder()
     builder.add_from_file(ADD_CREATURE_UI_PATH)
 
@@ -180,11 +155,6 @@ def open_add_creature_dialog(parent, mode, on_added):
     dex_entry.set_visible(not is_combat_mode)
     stats_button.set_visible(is_combat_mode)
 
-    # The batch's shared stat block -- untouched (all zeros) unless
-    # the user actually opens Edit Stats, in which case every field
-    # here (including dexterity, no longer entered via dex_entry in
-    # this mode) gets applied identically to every creature created
-    # below.
     staged_stats = {field: 0 for field in STATS_FIELDS}
 
     def on_stats_button_clicked(_button):
@@ -202,23 +172,10 @@ def open_add_creature_dialog(parent, mode, on_added):
         base_name = name_entry.get_text().strip() or "Unnamed"
         count = int(count_spin.get_value())
         status = status_entry.get_text().strip()
-        # A blank Initiative Roll rolls its own 1d20, same as any
-        # other die notation typed directly -- evaluated per creature
-        # in the loop below, not once here, so each creature in a
-        # multi-add batch gets its own independent roll.
         raw_init = init_entry.get_text().strip() or "1d20"
 
         creatures = []
         for i in range(count):
-            # Hitpoints, Armor Class, and Initiative Roll are each
-            # re-evaluated per creature rather than once outside the
-            # loop, so dice notation in any of them gives every
-            # creature in the batch its own independent roll. The
-            # rest of the stat block (staged_stats, or a plain
-            # Dexterity in Simple mode) is deliberately NOT
-            # re-evaluated per creature -- it's already resolved to
-            # plain integers, the same for every creature in the
-            # batch, by design (see the docstring above).
             try:
                 hitpoints = evaluate_int_expression(hp_entry.get_text())
                 armor_class = evaluate_int_expression(ac_entry.get_text())
@@ -231,8 +188,6 @@ def open_add_creature_dialog(parent, mode, on_added):
                 )
                 return
 
-            # Only number duplicates when there's more than one -- a
-            # single add keeps the name exactly as typed.
             display_name = f"{base_name} {i + 1}" if count > 1 else base_name
             creature_kwargs = dict(
                 name=display_name,

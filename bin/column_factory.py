@@ -1,28 +1,12 @@
-"""Builds the Gtk.ColumnView columns for creature entries.
-
-The current-turn highlight is driven by native row selection (a
-Gtk.SingleSelection on the ColumnView, configured in AppWindow) rather
-than a per-cell CSS class. Turn activation (double-click) is handled
-via Gtk.ColumnView's own "activate" signal in AppWindow, not here --
-each field's click handling below deliberately leaves its
-Gtk.GestureClick unclaimed, so the same click also reaches the row's
-native selection handling underneath.
-
-Gtk.ColumnViewColumn has no min-width property and auto-grows to fit
-its content unless given an explicit fixed-width, so each column here
-gets both a starting fixed-width and a floor enforced against further
-drags (see _enforce_min_width).
-"""
+"""Builds the Gtk.ColumnView columns for creature entries."""
 
 from gi.repository import Gtk, Pango
 
 
 class CreatureColumnFactory:
     """Builds the list of Gtk.ColumnViewColumn objects for the creature
-    table: one column per displayed field, plus a remove-icon column.
-    Construct once per AppWindow and pass self.columns to a
-    Gtk.ColumnView.
-    """
+    table. Construct once per AppWindow and pass self.columns to a
+    Gtk.ColumnView."""
 
     def __init__(
         self,
@@ -31,25 +15,15 @@ class CreatureColumnFactory:
         on_remove_requested,
         on_stats_requested,
     ):
-        """on_edit_requested(creature_obj, field_name, display_name) is
-        called on a click on the Creature/Armor Class/Initiative
-        Roll/Status cell. on_hitpoints_edit_requested(creature_obj) is
-        called on the Hitpoints cell (routed separately since it opens
-        a dedicated current/max/temp HP dialog). on_stats_requested(
-        creature_obj) is called on the crossed-swords stats-column
-        button (5e Combat mode only -- opens the full ability/
-        proficiency/skill editor, creature_stats_dialog.py).
-        on_remove_requested(creature_obj) is called when a row's
-        remove button is clicked."""
+        """on_edit_requested(creature_obj, field_name, display_name),
+        on_hitpoints_edit_requested(creature_obj),
+        on_stats_requested(creature_obj), on_remove_requested(
+        creature_obj) fire on the corresponding cell/button click."""
         self.on_edit_requested = on_edit_requested
         self.on_hitpoints_edit_requested = on_hitpoints_edit_requested
         self.on_remove_requested = on_remove_requested
         self.on_stats_requested = on_stats_requested
 
-        # Built once here so set_combat_columns_visible (called from
-        # window.py whenever the mode-switcher popover changes mode)
-        # has a stable reference. Hidden by default -- AppWindow
-        # starts in Simple mode.
         self._combat_only_columns = [self._build_stats_column(min_width=48)]
         for column in self._combat_only_columns:
             column.set_visible(False)
@@ -97,36 +71,16 @@ class CreatureColumnFactory:
         ]
 
     def set_combat_columns_visible(self, visible):
-        """Shows or hides the 5e Combat-mode stats column -- called
-        from window.py's mode switcher. A pure display toggle: the
-        underlying ability-score/proficiency/skill data is untouched
-        either way, so switching back to Combat mode later (or
-        exporting to CSV regardless of the currently active mode)
-        still has whatever was entered."""
         for column in self._combat_only_columns:
             column.set_visible(visible)
 
     def _build_stats_column(self, min_width=48):
-        """The single 5e Combat-mode column: a button showing a
-        crossed-swords glyph that opens the full stat-block editor
-        (creature_stats_dialog.py) -- all six ability scores,
-        proficiency bonus, saving throws, and skills. Replaces what
-        used to be six separate ability-score columns (Str/Dex/Con/
-        Int/Wis/Cha): those didn't leave anywhere to show the
-        saving-throw/skill data this button now also gives access to,
-        and eighteen skills' worth of columns was never going to fit
-        in a table row regardless. Built the same way
-        _build_remove_column is -- a plain icon-style button per row,
-        not the generic editable-text-cell factory the other columns
-        use, since this one always does the same thing (open the
-        window) rather than editing a value in place. Positioned as
-        the second-to-last column, right beside Remove, and shares
-        its ".icon-cell-button" shading (styling.py) so both read as
-        clickable at rest, not just on hover."""
+        """The 5e Combat-mode-only column: a crossed-swords button that
+        opens the full stat-block editor."""
         factory = Gtk.SignalListItemFactory()
 
         def on_setup(factory, list_item):
-            button = Gtk.Button(label="\u2694")  # crossed swords (U+2694)
+            button = Gtk.Button(label="\u2694")  # crossed swords
             button.set_tooltip_text("Edit Stats")
             button.add_css_class("flat")
             button.add_css_class("icon-cell-button")
@@ -161,10 +115,6 @@ class CreatureColumnFactory:
 
     @staticmethod
     def _format_hitpoints(creature_obj):
-        """Display text for the Hitpoints cell: "current/max", with a
-        "+ N temp" suffix appended whenever there's any temporary HP
-        (D&D-style temp HP, tracked separately rather than added into
-        current/max)."""
         base = f"{creature_obj.hitpoints}/{creature_obj.max_hitpoints}"
         if creature_obj.temp_hitpoints > 0:
             return f"{base} + {creature_obj.temp_hitpoints} temp"
@@ -173,16 +123,9 @@ class CreatureColumnFactory:
     # -- generic text-cell column ------------------------------------------------
 
     def _build_field_column(self, title, getter, notify_props, on_click, expand=False, min_width=80, zero_hp_highlight=False):
-        """Builds one resizable, ellipsizing text column. getter(creature_obj)
-        -> str produces the cell's display text; notify_props (dash-case
-        GObject property names) is which CreatureObject properties
-        should trigger a refresh via "notify::"; on_click(creature_obj)
-        fires on a cell click; expand controls whether this column
-        soaks up extra ColumnView width. zero_hp_highlight marks the
-        cell with the "zero-hp" CSS class (styling.py) whenever the
-        creature is at 0 hitpoints -- only meaningful for the
-        Hitpoints column, which already includes "hitpoints" in
-        notify_props."""
+        """getter(creature_obj) -> str produces the cell text;
+        notify_props (dash-case) triggers a refresh; on_click fires on
+        a cell click; zero_hp_highlight marks 0-HP cells."""
         factory = Gtk.SignalListItemFactory()
 
         def on_setup(factory, list_item):
@@ -191,13 +134,10 @@ class CreatureColumnFactory:
             label.set_ellipsize(Pango.EllipsizeMode.END)
             label.set_overflow(Gtk.Overflow.HIDDEN)
             label.set_cursor_from_name("pointer")
-            # Stops the column from being dragged down to (or below)
-            # zero, since a resizable column's floor is derived from
-            # its cells' actual size requests.
             label.set_size_request(min_width, -1)
 
             click_gesture = Gtk.GestureClick()
-            click_gesture.set_button(1)  # left click only
+            click_gesture.set_button(1)
             label.add_controller(click_gesture)
 
             list_item.set_child(label)
@@ -223,11 +163,6 @@ class CreatureColumnFactory:
             ]
 
             def handle_click(gesture, n_press, x, y):
-                # Every click opens the edit dialog; turn activation
-                # (double-click) is handled by the ColumnView's own
-                # "activate" signal in AppWindow. Left unclaimed so the
-                # click also reaches the row's native selection
-                # handling, corrected by _sync_selection() afterward.
                 on_click(creature_obj)
 
             list_item.click_handler_id = list_item.click_gesture.connect(
@@ -251,9 +186,6 @@ class CreatureColumnFactory:
         column = Gtk.ColumnViewColumn(title=title, factory=factory)
         column.set_resizable(True)
         column.set_expand(expand)
-        # A real starting width (rather than -1/auto) gives long
-        # content a fixed budget to ellipsize against, instead of just
-        # growing the column.
         column.set_fixed_width(min_width)
         self._enforce_min_width(column, min_width)
         return column
@@ -261,8 +193,7 @@ class CreatureColumnFactory:
     @staticmethod
     def _enforce_min_width(column, min_width):
         """Gtk.ColumnViewColumn has no min-width property, so this
-        watches fixed-width and snaps it back up if a drag pushes it
-        below the floor. -1 ("unset / natural sizing") is left alone."""
+        snaps fixed-width back up if a drag pushes it below the floor."""
         def on_notify_fixed_width(col, _pspec):
             width = col.get_fixed_width()
             if width != -1 and width < min_width:
@@ -273,8 +204,6 @@ class CreatureColumnFactory:
     # -- remove (trash-can icon) column ------------------------------------------------
 
     def _build_remove_column(self, min_width=48):
-        """Builds the fixed-width, non-resizable icon column used to
-        remove a creature from the list."""
         factory = Gtk.SignalListItemFactory()
 
         def on_setup(factory, list_item):
@@ -283,10 +212,6 @@ class CreatureColumnFactory:
             button.add_css_class("flat")
             button.add_css_class("icon-cell-button")
             button.set_overflow(Gtk.Overflow.HIDDEN)
-            # Centered rather than forced to fill the full column width
-            # (which left it flush against one edge) -- the column's
-            # own fixed_width already gives the cell its width, so the
-            # button just needs to center within it.
             button.set_halign(Gtk.Align.CENTER)
             button.set_valign(Gtk.Align.CENTER)
             list_item.set_child(button)

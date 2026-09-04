@@ -1,24 +1,10 @@
 #!/usr/bin/env bash
 # Builds a .deb package for Simple Initiative Tracker.
 #
-# Assumes this script lives in packaging/, as a sibling of bin/ and
-# ui/ at the project root (the same layout ui_paths.py's unfrozen
-# branch already expects). Run from anywhere:
-#
+# Run from anywhere:
 #     ./packaging/build_deb.sh
 #
 # Output: packaging/dist/initiative-tracker_<version>_all.deb
-#
-# Package layout on the target system:
-#   /usr/lib/initiative-tracker/bin/*.py   -- application source
-#   /usr/lib/initiative-tracker/ui/*.ui    -- .ui files (sibling of
-#                                              bin/, exactly matching
-#                                              the layout ui_paths.py's
-#                                              __file__-relative
-#                                              resolution expects)
-#   /usr/bin/sit                           -- launcher script
-#   /usr/share/applications/net.mystive.sit.desktop
-#   /usr/share/icons/hicolor/scalable/apps/net.mystive.sit.svg
 
 set -euo pipefail
 
@@ -49,11 +35,6 @@ mkdir -p \
     "$DIST_DIR"
 
 # -- control files ------------------------------------------------
-# debian/control's own "Version:" line is just a checked-in default
-# for humans reading the file directly -- the package actually built
-# here always gets $VERSION (from pyproject.toml, via version.sh)
-# regardless of what that line currently says, so the two can't drift
-# out of sync the way they once did.
 
 sed "s/^Version:.*/Version: $VERSION/" "$SCRIPT_DIR/debian/control" > "$PKGROOT/DEBIAN/control"
 cp "$SCRIPT_DIR/debian/postinst" "$PKGROOT/DEBIAN/postinst"
@@ -82,10 +63,6 @@ fi
 cp "$ICON_SRC" "$PKGROOT/usr/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg"
 
 # -- permissions ------------------------------------------------
-# Bulk defaults first (directories 755, files 644), then explicitly
-# re-mark the specific files that need to be executable -- doing this
-# in the opposite order would have the bulk file pass silently
-# overwrite the executable bit right back off.
 
 find "$PKGROOT" -type d -exec chmod 755 {} +
 find "$PKGROOT" -type f -exec chmod 644 {} +

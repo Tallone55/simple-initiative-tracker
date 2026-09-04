@@ -1,28 +1,14 @@
 #!/usr/bin/env bash
 # Runs whichever of the four platform build scripts are possible on
-# THIS machine, and clearly reports which ones aren't.
-#
-# No single physical machine can natively produce all four archives:
-# a real Windows .exe needs an actual Windows/MSYS2 toolchain, a real
-# macOS .app needs actual macOS + Xcode command line tools, and
-# there's no reliable way to cross-compile a GTK4 + GObject
-# Introspection + PyGObject application for a different OS than the
-# one doing the building -- the same constraint every GTK4 desktop
-# app's packaging setup runs into (it's why projects like GIMP and
-# Inkscape build their Windows/macOS/Linux releases on three separate
-# machines/CI runners, not one).
-#
-# For all four archives from a single trigger, use the CI workflow
-# instead (.github/workflows/release.yml), which builds each format
-# on its own native GitHub-hosted runner and collects every artifact
-# from one run. This script is the local, single-platform equivalent
-# -- run it on each of a Linux, Windows, and macOS machine to get the
-# full set by hand.
+# this machine, and reports which ones aren't. No single machine can
+# natively produce all four (Windows/macOS/Linux each need their own
+# native toolchain) -- for all four from one trigger, use the CI
+# workflow instead (.github/workflows/release.yml).
 #
 # Run from anywhere:
 #     ./packaging/build_all.sh
 
-set -uo pipefail  # deliberately not -e: one script's failure shouldn't stop the others
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

@@ -3,7 +3,7 @@ import sys
 import gi
 
 gi.require_version("Gtk", "4.0")
-gi.require_version("Adw", "1")  # matches the system theme (see cinnamon_theme.py)
+gi.require_version("Adw", "1")
 
 from application import Application
 

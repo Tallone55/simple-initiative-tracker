@@ -1,7 +1,6 @@
 """Data layer: the plain Creature record, its GObject wrapper for use in
 GTK list models, and the InitiativeDatabase that owns the sorted,
-current-turn-aware collection of creatures. No widgets here, so this is
-testable without a display."""
+current-turn-aware collection of creatures. No widgets here."""
 
 import csv
 from dataclasses import dataclass
@@ -23,9 +22,7 @@ ABILITY_ABBREVIATIONS = {
     "intelligence": "Int", "wisdom": "Wis", "charisma": "Cha",
 }
 
-# (skill name, governing ability) -- the standard 5e list, 18 entries,
-# grouped by ability to match how creature_stats_dialog.py displays
-# them (Constitution governs no skills, same as the real rules).
+# (skill name, governing ability), the standard 5e list of 18.
 SKILLS = [
     ("Athletics", "strength"),
     ("Acrobatics", "dexterity"),
@@ -49,69 +46,46 @@ SKILLS = [
 assert len(SKILLS) == 18
 SKILL_NAMES = [name for name, _ in SKILLS]
 
-# Skills grouped by governing ability, in SKILLS' own order, for
-# creature_stats_dialog.py's per-ability row layout (e.g.
-# SKILLS_BY_ABILITY["intelligence"] == ["Arcana", "History",
-# "Investigation", "Nature", "Religion"]). Every ability is present as
-# a key even if its list is empty (Constitution has no skills in 5e).
+# Skills grouped by governing ability, in SKILLS order.
 SKILLS_BY_ABILITY = {ability: [] for ability in ABILITIES}
 for _skill_name, _governing_ability in SKILLS:
     SKILLS_BY_ABILITY[_governing_ability].append(_skill_name)
 
-# The 24 "positions" referenced throughout this module and
-# creature_stats_dialog.py: the 6 saving throws (one per ability, in
-# ABILITIES order) come first, then the 18 skills (in SKILLS order).
+# 24 positions: 6 saving throws (ABILITIES order), then 18 skills
+# (SKILLS order).
 _POSITIONS = list(ABILITIES) + SKILL_NAMES
 NUM_POSITIONS = len(_POSITIONS)
 assert NUM_POSITIONS == 24
 
 
 def position_index(kind, name):
-    """0-based position within the 24-entry proficiency/advantage
-    pattern for a saving throw (kind="save", name=one of ABILITIES) or
-    a skill (kind="skill", name=one of SKILL_NAMES)."""
+    """0-based position for a saving throw (kind="save", name in
+    ABILITIES) or a skill (kind="skill", name in SKILL_NAMES)."""
     if kind == "save":
         return ABILITIES.index(name)
     return 6 + SKILL_NAMES.index(name)
 
 
 def ability_modifier(score):
-    """Standard 5e ability modifier: floor((score - 10) / 2) -- e.g.
-    16 -> +3, 7 -> -2. Python's // already floors toward negative
-    infinity (not just truncates toward zero), which is exactly the
-    rounding 5e's own rule uses, so no special-casing is needed for
-    the negative/odd-difference case."""
+    """Standard 5e ability modifier: floor((score - 10) / 2)."""
     return (score - 10) // 2
 
 
 # -- proficiency/advantage pattern encoding ------------------------------------------------
 #
-# Stored as a single integer (Creature.save_skill_pattern / CSV column
-# "Save/Skill Pattern") covering all 24 positions' proficiency level
-# AND advantage together, so a creature's entire saving-throw/skill
-# configuration round-trips through one CSV cell:
-#
-#   - Proficiency level per position is one base-3 "trit" (0 = none,
-#     1 = proficient, 2 = expertise) -- skills genuinely use all three
-#     values; saving throws only ever use 0 or 1 (5e has no saving
-#     throw expertise), but still get a full trit each for a uniform
-#     24-trit encoding rather than a mix of different bases. All 24
-#     trits packed into one base-3 number gives "24 positions worth of
-#     trinary data," i.e. a value from 0 to 3**24 - 1.
-#   - Advantage per position is a single bit (0/1), independent of
-#     proficiency level, packed into a 24-bit number.
-#   - The two are combined into one integer as
-#     (advantage_bits * 3**24) + proficiency_trits: 3**24 is larger
-#     than any possible value of the trit part, so the two halves
-#     never collide and can be split back apart with plain // and %.
+# One integer (Creature.save_skill_pattern) covers all 24 positions'
+# proficiency level and advantage:
+#   - Proficiency level per position is a base-3 trit (0/1/2 for
+#     skills; saves only ever use 0/1), packed into a base-3 number.
+#   - Advantage per position is one bit, packed into a 24-bit number.
+#   - Combined as (advantage_bits * 3**24) + proficiency_trits.
 
-_TRIT_BASE = 3 ** NUM_POSITIONS  # one past the max value the trit half can take
+_TRIT_BASE = 3 ** NUM_POSITIONS
 
 
 def encode_pattern(proficiency_levels, advantages):
-    """proficiency_levels: 24 ints, each 0/1/2 (position order -- see
-    _POSITIONS). advantages: 24 truthy/falsy values, same order.
-    Returns the single combined integer described above."""
+    """proficiency_levels: 24 ints (0/1/2). advantages: 24
+    truthy/falsy values. Both in position order."""
     prof_code = 0
     for i, level in enumerate(proficiency_levels):
         prof_code += level * (3 ** i)
@@ -123,8 +97,7 @@ def encode_pattern(proficiency_levels, advantages):
 
 
 def decode_pattern(value):
-    """Inverse of encode_pattern -- returns (proficiency_levels,
-    advantages), each a 24-entry list in position order."""
+    """Inverse of encode_pattern."""
     adv_code, prof_code = divmod(value, _TRIT_BASE)
     proficiency_levels = []
     remaining = prof_code
@@ -138,18 +111,11 @@ def decode_pattern(value):
 @dataclass
 class Creature:
     """Plain data class -- the source of truth for a single creature's
-    stats. CreatureObject below just exposes it to GTK.
+    stats. CreatureObject below exposes it to GTK.
 
-    The six ability scores default to 0, meaning "not set" (blank in
-    every UI that displays them) rather than a real ability score --
-    matching every other optional numeric field in this module
-    (temp_hitpoints). Dexterity is the only one usable outside 5e
-    Combat mode (Simple mode's Add Creature dialog exposes just that
-    one field, for breaking initiative ties -- see
-    InitiativeDatabase._compare below); the other five, along with
-    proficiency_bonus and save_skill_pattern, are only editable via
-    the full stat-block window (creature_stats_dialog.py), opened from
-    the crossed-swords column (5e Combat mode only)."""
+    The six ability scores default to 0, meaning "not set". Dexterity
+    is usable outside 5e Combat mode too (initiative tie-break); the
+    rest are only editable via the stat-block window."""
     name: str
     hitpoints: int
     max_hitpoints: int
@@ -169,9 +135,8 @@ class Creature:
 
 
 class CreatureObject(GObject.Object):
-    """GObject wrapper around a Creature dataclass instance, since
-    Gio.ListStore/Gtk.SortListModel/Gtk.ColumnView only accept
-    GObject-derived items."""
+    """GObject wrapper around a Creature, since Gio.ListStore/
+    Gtk.SortListModel/Gtk.ColumnView require GObject-derived items."""
 
     __gtype_name__ = "CreatureObject"
 
@@ -291,9 +256,7 @@ class CreatureObject(GObject.Object):
     def proficiency_bonus(self, value):
         self._creature.proficiency_bonus = value
 
-    # int64, not the default 32-bit int: the encoded value can exceed
-    # 2**31 (see encode_pattern's own docstring for the exact range --
-    # up to roughly 4.7e18, safely within int64 but not int32).
+    # int64: the encoded value can exceed 2**31.
     @GObject.Property(type=GObject.TYPE_INT64)
     def save_skill_pattern(self):
         return self._creature.save_skill_pattern
@@ -322,22 +285,13 @@ class InitiativeDatabase:
         self.sorted_model = Gtk.SortListModel(model=self.store, sorter=self.sorter)
         self.current_creature = None  # CreatureObject reference, or None
         self.round_number = 1
-        # A plain int, not app_mode.Mode -- see app_mode.py's own
-        # docstring for why the enum<->int conversion happens in
-        # window.py instead of here. 0 (Mode.SIMPLE) by default.
-        self.mode = 0
+        self.mode = 0  # plain int; see app_mode.py
 
     @staticmethod
     def _compare(a, b, user_data=None):
         if a.initiative_roll != b.initiative_roll:
             return -1 if a.initiative_roll > b.initiative_roll else 1
-        # Standard 5e tie-break: higher Dexterity acts first. Only
-        # actually distinguishes two creatures when both have a
-        # nonzero (i.e. actually entered) Dexterity -- 0 means "not
-        # set" here, same as everywhere else this module treats an
-        # optional stat, so two untouched creatures with equal
-        # initiative still just fall through to the arbitrary (but
-        # stable) order below, same as before Dexterity existed.
+        # 5e tie-break: higher Dexterity acts first.
         if a.dexterity != b.dexterity:
             return -1 if a.dexterity > b.dexterity else 1
         return 0
@@ -347,23 +301,18 @@ class InitiativeDatabase:
         return [self.sorted_model.get_item(i) for i in range(n)]
 
     def _current_index(self):
-        """Position of current_creature within the sorted turn order,
-        or None if there's no current creature or it's not in the list."""
+        """Position of current_creature in turn order, or None."""
         items = self._sorted_list()
         if self.current_creature in items:
             return items.index(self.current_creature)
         return None
 
     def resort(self):
-        """Call after a mutation that could change turn order (any
-        edit to initiative_roll, or an add)."""
         self.sorter.changed(Gtk.SorterChange.DIFFERENT)
 
     def add_creature(self, creature: Creature) -> CreatureObject:
-        """Adds a new creature. A new arrival's higher roll only jumps
-        the queue if whoever currently has the turn was already at the
-        top of the order -- mid-round, adding creatures shouldn't
-        disrupt whoever's turn it already is."""
+        """A new arrival's higher roll only jumps the queue if whoever
+        has the turn was already at the top of the order."""
         current_was_top = self.current_creature is not None and self._current_index() == 0
 
         obj = CreatureObject(creature)
@@ -377,20 +326,17 @@ class InitiativeDatabase:
         return obj
 
     def set_current_creature(self, creature_obj: CreatureObject):
-        """Manually overrides whose turn it is (distinct from
-        next_turn(), which advances turn order)."""
         self.current_creature = creature_obj
 
     def clear(self):
-        """Resets to a fresh, empty initiative order -- used by "New"."""
         self.store.remove_all()
         self.current_creature = None
         self.round_number = 1
         self.mode = 0
 
     def remove_creature(self, creature_obj: CreatureObject):
-        """Removes a creature. If it was the current turn, current
-        becomes the new top of the turn order (or None if now empty)."""
+        """If the removed creature was the current turn, current
+        becomes the new top of the turn order (or None if empty)."""
         found, position = self.store.find(creature_obj)
         if found:
             self.store.remove(position)
@@ -399,8 +345,6 @@ class InitiativeDatabase:
             self.current_creature = items[0] if items else None
 
     def next_turn(self):
-        """Advances to the next creature in turn order, wrapping to the
-        top and incrementing round_number when a full cycle completes."""
         items = self._sorted_list()
         if not items:
             self.current_creature = None
@@ -415,10 +359,8 @@ class InitiativeDatabase:
             self.current_creature = items[new_idx]
 
     def export_csv(self, path):
-        """Writes the full creature list to path as CSV, current
-        creature first followed by the rest in turn order (wrapping
-        around), with the round number and display mode appended to
-        the header row (in that order)."""
+        """Writes the creature list as CSV, current creature first,
+        with round number and display mode appended to the header."""
         items = self._sorted_list()
         idx = self._current_index()
         if idx is None:
@@ -449,16 +391,10 @@ class InitiativeDatabase:
                 ])
 
     def import_csv(self, path):
-        """Replaces the entire creature list with the contents of
-        path. The header row is skipped for creature data but its
-        trailing cell (if present) is read back as the round number.
-        Malformed data rows (fewer than 5 columns) are skipped.
-        Temp Hitpoints (column 6), Status (column 7), the six ability
-        scores (columns 8-13), Proficiency Bonus (column 14), the
-        Save/Skill Pattern (column 15), and To-Hit Bonus (column 16)
-        are all optional, for compatibility with files exported before
-        those fields existed -- missing entirely defaults to 0 (or ""
-        for Status)."""
+        """Replaces the entire creature list with path's contents.
+        Every column past Initiative Roll is optional, for
+        compatibility with older exports -- missing defaults to 0 (or
+        "" for Status)."""
         with open(path, "r", newline="", encoding="utf-8") as f:
             rows = list(csv.reader(f))
 
@@ -496,19 +432,11 @@ class InitiativeDatabase:
         for obj in new_objects:
             self.store.append(obj)
 
-        # First row is, by our export convention, whoever's turn it is.
         self.current_creature = new_objects[0] if new_objects else None
 
-        # Round number and display mode, if present, are the header
-        # row's trailing cells, in that order -- files from before
-        # each feature existed won't have them. A file with only ONE
-        # trailing cell (everything exported before display mode
-        # existed) has just the round number; disambiguated from a
-        # genuine two-cell (round, mode) pair by whether the header
-        # row is at least 2 cells longer than the current CSV_HEADERS
-        # -- robust to CSV_HEADERS itself having grown since a given
-        # file was exported, the same reasoning the single-cell
-        # version of this check already relied on.
+        # Round number and mode are the header row's trailing cells.
+        # A file with only one trailing cell predates the mode field;
+        # disambiguated by header length against CSV_HEADERS.
         round_number = 1
         mode = 0
         if len(header_row) >= len(CSV_HEADERS) + 2:

@@ -1,9 +1,5 @@
-"""Linear undo/redo history using the command pattern. Each undoable
-action pushes a Command -- a pair of no-argument callables that only
-mutate data (InitiativeDatabase / CreatureObject state); refreshing the
-UI afterward is the caller's responsibility (see AppWindow.perform_undo/
-perform_redo). Pushing a new command clears the redo stack, matching
-standard editor behavior."""
+"""Linear undo/redo history via the command pattern. Pushing a new
+command clears the redo stack."""
 
 from dataclasses import dataclass
 from typing import Callable
@@ -39,8 +35,7 @@ class UndoManager:
         self._undo_stack.append(command)
 
     def clear(self):
-        """Call when the underlying data is replaced wholesale (e.g. a
-        CSV import) -- old commands would reference creature objects no
-        longer in the store."""
+        """Call when the underlying data is replaced wholesale (e.g.
+        a CSV import)."""
         self._undo_stack.clear()
         self._redo_stack.clear()

@@ -9,12 +9,10 @@ from cinnamon_theme import sync_theme, reapply as reapply_theme
 
 class Application(Gtk.Application):
     def __init__(self, *args, **kwargs):
-        # SIT: Simple Initiative Tracker
         super().__init__(*args, application_id="net.mystive.sit", **kwargs)
         self.window = None
 
     def do_startup(self):
-        """Runs once, on process registration."""
         Gtk.Application.do_startup(self)
 
         quit_action = Gio.SimpleAction(name="quit")
@@ -32,37 +30,19 @@ class Application(Gtk.Application):
         for action_name, accels in KEYBINDS.items():
             self.set_accels_for_action(action_name, accels)
 
-        # Traditional "File" menu bar, for platforms where a headerbar
-        # hamburger menu (see window.py) isn't the native convention.
         self.set_menubar(build_menubar())
 
-        # Static, theme-independent CSS (including the GTK-default
-        # highlight-color fallback) is installed first, so that
-        # cinnamon_theme's provider -- added after, by sync_theme()
-        # below -- wins tiebreaks against it wherever it has an
-        # actual theme-resolved value to offer instead (e.g. the
-        # current-turn row highlight; see cinnamon_theme._apply_theme).
         install_css()
-
-        # Imports the Cinnamon desktop's active theme (see cinnamon_theme.py).
         self._theme_settings = sync_theme()
 
     def do_activate(self):
-        """Runs on every activation (app launch, or re-invocation while
-        already running)."""
         if not self.window:
             self.window = AppWindow(application=self, title="Simple Initiative Tracker")
         self.window.present()
-
-        # Re-applies theme state now that the window (and its
-        # headerbar's window-control buttons) actually exist.
         reapply_theme()
 
     def on_quit(self, action, param):
-        """app.quit action handler (Ctrl+Q or any Quit menu item)."""
         if self.window:
-            # Routes through the window's close sequence so the
-            # unsaved-changes check gets a chance to run.
             self.window.close()
         else:
             self.quit()

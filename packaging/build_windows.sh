@@ -1,16 +1,7 @@
 #!/usr/bin/env bash
-# Builds a portable Windows .exe for Simple Initiative Tracker -- the
-# same "run in place" philosophy as the Linux portable build
-# (build_linux_portable.sh) and the macOS .app bundle (build_macos.sh):
-# a single self-contained folder, everything the app needs bundled
-# alongside it, distributed as SimpleInitiativeTracker.exe plus the
-# runtime/ folder it depends on.
+# Builds a portable Windows .exe for Simple Initiative Tracker.
 #
-# MUST be run from an MSYS2 MINGW64 shell on Windows (not WSL, not
-# Git Bash, not plain MSYS) -- that's the environment PyGObject's own
-# Windows documentation recommends, and the only practical source for
-# a working GTK4 + PyGObject + GObject-Introspection build on
-# Windows: https://pygobject.gnome.org/getting_started.html
+# MUST be run from an MSYS2 MINGW64 shell on Windows.
 #
 # One-time setup, from an MSYS2 MINGW64 shell:
 #     pacman -S --needed mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita \
@@ -22,21 +13,14 @@
 #     ./packaging/build_windows.sh
 #
 # Output: packaging/dist/initiative-tracker-<version>-windows-x86_64.exe
-# (a self-extracting archive; falls back to a plain .zip of the same
-# folder if 7-Zip isn't installed -- see the archiving step below)
-# (scratch work happens in packaging/build/windows/, safe to delete)
+# (a self-extracting archive; falls back to a plain .zip if 7-Zip
+# isn't installed)
 #
-# Portability boundary: everything the app needs travels in the
-# bundle's runtime/ folder (a matching Python interpreter, GTK4, GLib,
-# Pango, cairo, HarfBuzz, gdk-pixbuf, and their MSYS2-provided
-# dependencies) EXCEPT the small set of core OS/CRT DLLs Windows
-# itself services (kernel32, ntdll, user32, the api-ms-win-* virtual
-# DLLs, ...) -- see collect_dlls.py's own denylist for the exact set.
-#
-# Font rendering relies on the host's own installed fonts (via
-# DirectWrite/GDI, which MSYS2's GTK4 build uses on Windows) rather
-# than bundling a font stack, matching the same choice the Linux
-# portable build makes for fontconfig.
+# Portability boundary: everything the app needs travels in
+# runtime/ (Python, GTK4, GLib, Pango, cairo, HarfBuzz, gdk-pixbuf,
+# and their MSYS2-provided dependencies) EXCEPT the core Windows
+# OS/CRT DLLs -- see collect_dlls.py's denylist. Font rendering
+# relies on the host's own installed fonts.
 
 set -euo pipefail
 
@@ -81,12 +65,6 @@ cp "$PROJECT_ROOT"/bin/*.py "$STAGE_DIR/bin/"
 cp "$PROJECT_ROOT"/ui/*.ui "$STAGE_DIR/ui/"
 
 # -- portable Python interpreter ------------------------------------------------
-# MSYS2's own mingw-w64 Python build (not python.org's -- that one
-# can't load MSYS2-built extension modules) is already a real,
-# mostly-relocatable install under /mingw64; copied wholesale minus
-# its own site-packages, which get replaced by exactly the two
-# packages the app needs (gi, cairo) so nothing else MSYS2 happens to
-# have installed system-wide leaks into the bundle.
 
 PYTHON_VERSION="$("$MINGW_ROOT/bin/python3" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 SITE_PACKAGES="$MINGW_ROOT/lib/python$PYTHON_VERSION/site-packages"
@@ -110,12 +88,6 @@ done
 
 GTK_DLL="$MINGW_ROOT/bin/libgtk-4-1.dll"
 ADWAITA_DLL="$MINGW_ROOT/bin/libadwaita-1-0.dll"
-# *.pyd naming here isn't narrowed to any one assumed ABI-tag
-# convention (e.g. "-mingw-") -- MSYS2's exact compiled-extension
-# filename format isn't something to guess at from outside a real
-# MSYS2 install, so this matches broadly on the "_gi"/"_gi_cairo"/
-# "_cairo" prefix instead and lets whatever suffix MSYS2 actually
-# uses fall through.
 GI_EXT="$(find "$SITE_PACKAGES/gi" -maxdepth 1 -name '_gi*.pyd' ! -name '_gi_cairo*' | head -1)"
 GI_CAIRO_EXT="$(find "$SITE_PACKAGES/gi" -maxdepth 1 -name '_gi_cairo*.pyd' | head -1)"
 PYCAIRO_EXT="$(find "$SITE_PACKAGES/cairo" -maxdepth 1 -name '_cairo*.pyd' | head -1)"
@@ -134,7 +106,7 @@ else
 fi
 [ -n "$GI_CAIRO_EXT" ] && SEEDS+=("$GI_CAIRO_EXT")
 [ -n "$PYCAIRO_EXT" ] && SEEDS+=("$PYCAIRO_EXT")
-[ -f "$ADWAITA_DLL" ] && SEEDS+=("$ADWAITA_DLL")  # sit.py requires Adw 1 alongside Gtk 4
+[ -f "$ADWAITA_DLL" ] && SEEDS+=("$ADWAITA_DLL")
 
 PIXBUF_LOADER="$(find "$MINGW_ROOT/lib/gdk-pixbuf-2.0" -name 'libpixbufloader-*.dll' 2>/dev/null | head -1)"
 if [ -z "$PIXBUF_LOADER" ]; then
@@ -151,12 +123,6 @@ python3 "$WIN_DIR/collect_dlls.py" \
     --search-path "$MINGW_ROOT/bin" \
     "${SEEDS[@]}"
 
-# Loader DLLs are dlopen()'d plugins, not link-time dependencies of
-# anything seeded above, so they're never reached by collect_dlls.py's
-# own import-table walk -- copied explicitly here, alongside the query
-# tool the launcher uses to regenerate their cache at every run (its
-# cache file embeds an absolute path, so it can't be baked in once at
-# build time -- same reasoning as the Linux portable build).
 cp "$PIXBUF_LOADER_DIR"/*.dll "$STAGE_DIR/runtime/lib/gdk-pixbuf-2.0/loaders/"
 cp "$PIXBUF_QUERY_LOADERS" "$STAGE_DIR/runtime/lib/gdk-pixbuf-2.0/"
 
@@ -168,32 +134,17 @@ cp "$MINGW_ROOT/lib/girepository-1.0"/*.typelib "$STAGE_DIR/runtime/lib/gireposi
 
 cp "$MINGW_ROOT/share/glib-2.0/schemas/gschemas.compiled" "$STAGE_DIR/runtime/share/glib-2.0/schemas/"
 
-# -- icon (optional nicety, not required for the app to run) ------------------------------------------------
+# -- icon ------------------------------------------------
 
 cp "$SCRIPT_DIR/debian/$BUNDLE_ID.svg" "$STAGE_DIR/runtime/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg"
 
 # -- native launcher ------------------------------------------------
-# Compiled fresh here rather than checked in as a binary -- see
-# windows/launcher.c for why a tiny compiled stub is needed at all
-# (env vars GI/GLib read have to be set before bin/sit.py's own
-# "import gi" runs, and pythonw.exe alone doesn't know what script to
-# launch anyway).
 
 x86_64-w64-mingw32-gcc -municode -mwindows -O2 \
     -o "$STAGE_DIR/${APP_NAME// /}.exe" \
     "$WIN_DIR/launcher.c" -lshlwapi
 
 # -- archive (self-extracting .exe) ------------------------------------------------
-# A single double-clickable SimpleInitiativeTracker.exe already exists
-# inside $STAGE_DIR, but the *distributable* still needs to carry the
-# runtime/ folder alongside it -- wrapped here as a 7-Zip
-# self-extracting archive (a genuine, ordinary .exe: the standard 7z
-# SFX module concatenated with a small config block and the
-# compressed archive) so the download itself is one .exe, matching
-# the macOS .app bundle and Linux .tar.gz archive being the single
-# artifact for their platforms too. Falls back to a plain .zip if
-# 7-Zip isn't installed, since the portable folder is still fully
-# usable either way -- just not as one file.
 
 SEVEN_ZIP="$(command -v 7z || command -v 7z.exe || true)"
 SFX_MODULE="$(find "$MINGW_ROOT" -iname '7zS2.sfx' -o -iname '7zSD.sfx' -o -iname '7z.sfx' 2>/dev/null | head -1)"

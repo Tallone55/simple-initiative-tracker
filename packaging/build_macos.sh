@@ -1,16 +1,7 @@
 #!/usr/bin/env bash
-# Builds a self-contained .app bundle for Simple Initiative Tracker --
-# the same "run in place" philosophy as the Linux portable build
-# (build_linux_portable.sh) and the Windows portable build
-# (build_windows.sh): everything the app needs travels inside the
-# bundle, no separate install step, just double-click it (or drag it
-# to /Applications, entirely optional).
+# Builds a self-contained .app bundle for Simple Initiative Tracker.
 #
-# MUST be run on macOS, with Homebrew's own GTK4 already installed --
-# there's no such thing as a portable prebuilt PyGObject wheel, since
-# it's a thin binding over the system/Homebrew's own GObject
-# Introspection, the same reasoning build_linux_portable.sh's own
-# docstring gives for Linux.
+# MUST be run on macOS, with Homebrew's own GTK4 already installed.
 #
 # One-time setup:
 #     brew install gtk4 libadwaita pygobject3 gobject-introspection librsvg
@@ -19,15 +10,11 @@
 #     ./packaging/build_macos.sh
 #
 # Output: packaging/dist/Simple Initiative Tracker.app
-# (scratch work happens in packaging/build/macos/, safe to delete)
 #
-# Portability boundary: everything the app needs travels in the
-# bundle's Contents/Frameworks and Contents/Resources EXCEPT macOS's
-# own system frameworks and libSystem -- see collect_dylibs.py's own
-# denylist for the exact set. Font rendering relies on the host's own
-# installed fonts (via Core Text, which GTK4's macOS backend uses)
-# rather than bundling a font stack, matching the same choice the
-# Linux and Windows portable builds make for their own font stacks.
+# Portability boundary: everything the app needs travels in
+# Contents/Frameworks and Contents/Resources EXCEPT macOS's own
+# system frameworks and libSystem -- see collect_dylibs.py's
+# denylist. Font rendering relies on the host's own installed fonts.
 
 set -euo pipefail
 
@@ -39,20 +26,11 @@ MACOS_DIR="$SCRIPT_DIR/macos"
 source "$COMMON_DIR/app_metadata.sh"
 source "$COMMON_DIR/version.sh"
 
-# Used for every recursive directory copy below instead of cp -a or
-# ditto -- both, in turn, hit a "File exists" error partway through a
-# Homebrew-sourced tree (first the Python.framework copy with cp -a,
-# then again one level deeper with ditto, then again after resolving
-# one of the two paths involved via realpath()). Homebrew's install
-# layout turned out to alias the same real directory under more than
-# one apparent path in more than one place, not just the one place
-# each previous fix addressed -- so rather than continuing to
-# canonicalize individual paths one discovery at a time, every
-# symlink encountered during these copies is dereferenced into a real
-# copy of its target's actual content (symlinks=False), which removes
-# the entire class of bug at once: there's no longer any alias chain
-# left that could cause the same real directory to be visited, and
-# therefore created at the destination, twice within one copy.
+# Dereferences symlinks (rather than cp -a/ditto, which both hit
+# "File exists" errors partway through Homebrew's heavily-aliased
+# install layout) so every recursive copy below is unconditionally
+# safe regardless of how many alias chains a given tree happens to
+# have.
 copy_tree() {
     python3 -c '
 import shutil, sys
@@ -103,24 +81,11 @@ cp "$PROJECT_ROOT"/bin/*.py "$CONTENTS/Resources/bin/"
 cp "$PROJECT_ROOT"/ui/*.ui "$CONTENTS/Resources/ui/"
 
 # -- portable Python interpreter ------------------------------------------------
-# Homebrew's own Python (whichever one PyGObject was installed
-# against) copied wholesale, then site-packages narrowed to just gi
-# and cairo, the same trim the Linux/Windows builds each do for their
-# own bundled interpreter.
 
-# Asked from Homebrew's own dependency graph rather than hardcoded --
-# pygobject3 depends on whichever "python@X.Y" formula is current,
-# and that version number drifts with every Homebrew release (this
-# was previously hardcoded to "python@3.13" as a guess, which is
-# exactly the kind of assumption that broke build_macos.sh's very
-# first real run for an unrelated reason -- not worth leaving a
-# second one sitting here for the *next* run to trip over).
 PYTHON_FORMULA="$(brew deps --formula pygobject3 2>/dev/null | grep '^python@' | head -1 || true)"
 if [ -n "$PYTHON_FORMULA" ] && PYTHON_PREFIX="$(brew --prefix "$PYTHON_FORMULA" 2>/dev/null)"; then
     PYTHON_FRAMEWORK_BIN="$PYTHON_PREFIX/bin/python3"
 else
-    # Falls back to whatever "python3" resolves to on PATH if the
-    # dependency lookup itself didn't work out.
     PYTHON_FRAMEWORK_BIN="$(command -v python3 || true)"
 fi
 if [ ! -x "$PYTHON_FRAMEWORK_BIN" ]; then
@@ -161,7 +126,7 @@ SEEDS=("$GTK_DYLIB" "$PIXBUF_QUERY_LOADERS")
 [ -n "$GI_EXT" ] && SEEDS+=("$GI_EXT")
 [ -n "$GI_CAIRO_EXT" ] && SEEDS+=("$GI_CAIRO_EXT")
 [ -n "$PYCAIRO_EXT" ] && SEEDS+=("$PYCAIRO_EXT")
-[ -n "$ADWAITA_DYLIB" ] && SEEDS+=("$ADWAITA_DYLIB")  # sit.py requires Adw 1 alongside Gtk 4
+[ -n "$ADWAITA_DYLIB" ] && SEEDS+=("$ADWAITA_DYLIB")
 
 GDK_PIXBUF_LOADER="$(find "$BREW_PREFIX/lib/gdk-pixbuf-2.0" -name 'libpixbufloader-*.so' 2>/dev/null | head -1)"
 if [ -n "$GDK_PIXBUF_LOADER" ]; then
@@ -170,11 +135,6 @@ if [ -n "$GDK_PIXBUF_LOADER" ]; then
         SEEDS+=("$loader")
     done
 else
-    # Empty rather than unset: downstream checks test for this
-    # specifically (an empty find result piped through dirname would
-    # otherwise silently become ".", the current directory -- not an
-    # error -- and later steps would glob whatever unrelated files
-    # happen to be sitting there instead of failing loudly here).
     GDK_PIXBUF_LOADER_DIR=""
     echo "Warning: no gdk-pixbuf loaders found under $BREW_PREFIX/lib/gdk-pixbuf-2.0 -- image loading (icons, PNGs, etc.) may not work in the built app." >&2
 fi
@@ -201,38 +161,23 @@ cp "$TYPELIB_DIR"/*.typelib "$CONTENTS/Resources/lib/girepository-1.0/"
 cp "$BREW_PREFIX/share/glib-2.0/schemas/gschemas.compiled" "$CONTENTS/Resources/share/glib-2.0/schemas/"
 
 # -- rpath: point the bundled Python at Contents/Frameworks ------------------------------------------------
-# collect_dylibs.py already rewrote the collected dylibs to reference
-# each other via @rpath -- this is what makes @rpath actually resolve
-# to Contents/Frameworks for the interpreter that loads them.
 
 PYTHON_BIN="$CONTENTS/Resources/python/bin/python3"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$PYTHON_BIN" 2>/dev/null || true
 if [ -n "$GI_EXT" ]; then
-    # $GI_EXT itself still points at the *original* Homebrew source
-    # file (correct as a seed for collect_dylibs.py above, since
-    # that's what needs to be walked for its real dependencies) --
-    # but the rpath needs to go on the actual copy that ended up
-    # inside the bundle, or the bundled _gi module never gets one and
-    # "import gi" fails at runtime with a dyld "Library not loaded"
-    # error despite the build itself completing without any
-    # complaint.
+    # The rpath must go on the copy inside the bundle, not $GI_EXT's
+    # own original Homebrew path (still needed above as a
+    # collect_dylibs.py seed).
     GI_EXT_BUNDLED="$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/gi/$(basename "$GI_EXT")"
     install_name_tool -add_rpath "@loader_path/../../../Frameworks" "$GI_EXT_BUNDLED" 2>/dev/null || true
 else
     echo "Warning: PyGObject's _gi extension module wasn't found -- the built app likely can't import gi at runtime." >&2
 fi
 
-# Re-signed with a fresh ad-hoc signature after install_name_tool
-# invalidates whatever Homebrew originally applied -- same reasoning,
-# and same fix, as collect_dylibs.py's own _rewrite_install_names.
 codesign --force --sign - "$PYTHON_BIN" 2>/dev/null || true
 [ -n "$GI_EXT" ] && codesign --force --sign - "$GI_EXT_BUNDLED" 2>/dev/null || true
 
 # -- icon ------------------------------------------------
-# .icns has to be built from a set of rasterized PNG sizes -- rsvg-convert
-# (from librsvg, a GTK4/gdk-pixbuf dependency already on the build
-# machine) renders those from the project's one source SVG, then
-# iconutil (a standard macOS command-line tool) assembles the .icns.
 
 ICON_SVG="$SCRIPT_DIR/debian/$BUNDLE_ID.svg"
 ICONSET_DIR="$BUILD_DIR/$BUNDLE_ID.iconset"
@@ -261,14 +206,9 @@ sed \
     "$MACOS_DIR/Info.plist.in" > "$CONTENTS/Info.plist"
 
 # -- launcher ------------------------------------------------
-# A plain shell script here (rather than a compiled stub, unlike the
-# Windows build) is entirely standard -- Contents/MacOS/<executable>
-# just needs to be executable, and macOS doesn't require it to be a
-# native binary the way Windows requires an actual .exe.
 
 cat > "$CONTENTS/MacOS/$EXECUTABLE_NAME" << 'LAUNCHER'
 #!/bin/sh
-# Simple Initiative Tracker -- .app bundle launcher.
 set -e
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")/../Resources" && pwd)"
 
@@ -276,10 +216,6 @@ export GI_TYPELIB_PATH="$HERE/lib/girepository-1.0"
 export GSETTINGS_SCHEMA_DIR="$HERE/share/glib-2.0/schemas"
 export XDG_DATA_DIRS="$HERE/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
 
-# gdk-pixbuf's own loader cache embeds each loader's absolute path, so
-# it's regenerated fresh on every launch against wherever this bundle
-# actually is right now, rather than baked in once at build time --
-# same reasoning as the Linux and Windows portable builds.
 PIXBUF_CACHE="$HERE/lib/gdk-pixbuf-2.0/loaders.cache.runtime"
 "$HERE/lib/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders" "$HERE/lib/gdk-pixbuf-2.0/loaders/"*.so \
     > "$PIXBUF_CACHE" 2>/dev/null || true
@@ -290,9 +226,6 @@ LAUNCHER
 chmod 755 "$CONTENTS/MacOS/$EXECUTABLE_NAME"
 
 # -- archive ------------------------------------------------
-# The .app *is* the distributable on macOS (Finder already treats it
-# as a single double-clickable item) -- copied straight to dist/
-# rather than wrapped in a further zip/dmg.
 
 rm -rf "${DIST_DIR:?}/$APP_BUNDLE_NAME"
 copy_tree "$APP_DIR" "$DIST_DIR/$APP_BUNDLE_NAME"

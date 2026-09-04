@@ -1,16 +1,6 @@
-"""Safe evaluation of plain arithmetic typed into integer-only fields,
-e.g. "12+8", "(20-3)*2", "100//4", "42", or dice notation like "2d6+5".
-
-This deliberately avoids eval()/exec(): the text is parsed into an AST
-and only a small whitelist of node types (numeric literals, standard
-arithmetic operators, unary sign, and parentheses) is permitted.
-Anything else raises ExpressionError.
-
-Dice notation ("xdy" or bare "dy" for 1dy) is resolved with a regex
-pass before parsing: each dice token is replaced with the literal
-integer sum of rolling it (e.g. "2d6+5" becomes "9+5"), so dice rolls
-compose naturally with the rest of an expression.
-"""
+"""Safe evaluation of arithmetic/dice expressions typed into
+integer-only fields (e.g. "12+8", "2d6+5"). Parses to an AST and only
+permits a whitelist of node types -- no eval()/exec()."""
 
 import ast
 import operator
@@ -32,21 +22,19 @@ _ALLOWED_UNARYOPS = {
     ast.USub: operator.neg,
 }
 
-# Matches "xdy" (e.g. "2d6") or bare "dy" (e.g. "d20", meaning 1d20),
-# excluding a 'd' embedded in some other run of characters.
+# Matches "xdy" (e.g. "2d6") or bare "dy" (1dy).
 _DICE_PATTERN = re.compile(r"(?<![\w.])(\d*)d(\d+)(?![\w.])", re.IGNORECASE)
 
 _MAX_DICE_COUNT = 10_000
 _MAX_DICE_SIDES = 100_000
 
-# GObject's `int` properties are backed by a 32-bit signed gint.
+# GObject's `int` properties are a 32-bit signed gint.
 _GINT_MIN = -(2**31)
 _GINT_MAX = 2**31 - 1
 
 
 class ExpressionError(ValueError):
-    """Raised when a typed value isn't a valid integer or arithmetic
-    expression, or evaluates to something that can't be an integer."""
+    pass
 
 
 def _roll_dice(count: int, sides: int) -> int:
@@ -73,12 +61,9 @@ def _substitute_dice_rolls(text: str) -> str:
 
 
 def evaluate_int_expression(text: str) -> int:
-    """Evaluates text as an integer or arithmetic/dice expression.
-    Blank/whitespace-only text evaluates to 0, rather than raising --
-    callers apply their own rules (e.g. clamping to a minimum) after
-    the fact, the same as for any other evaluated value. Raises
+    """Blank/whitespace-only text evaluates to 0. Raises
     ExpressionError for invalid syntax, non-integer results, or
-    results outside GObject's gint range -- never any other exception."""
+    results outside GObject's gint range."""
     text = text.strip()
     if not text:
         return 0

@@ -1,24 +1,8 @@
-/* Minimal native launcher for the portable Windows build.
- *
- * A bundled Python interpreter alone can't be the thing the user
- * double-clicks: GI_TYPELIB_PATH, GSETTINGS_SCHEMA_DIR, and the
- * bundle's own DLL directory all need to be set up *before* bin/
- * sit.py's own "import gi" ever runs, and pythonw.exe itself takes
- * no arguments implicitly, so a bare renamed copy of it wouldn't
- * know what script to launch anyway. This tiny compiled stub -- built
- * as part of build_windows.sh, from this file -- sets that
- * environment up, then execs the bundled pythonw.exe against bin\
- * sit.py, giving a single double-clickable SimpleInitiativeTracker.exe
- * with no arguments required. Same role as the shell launcher in the
- * Linux portable bundle and the Info.plist-driven launcher in the
- * macOS .app bundle.
- *
- * SetDllDirectoryW covers GTK4/GLib/etc.'s own DLL-to-DLL
- * dependencies (the Windows loader always searches a directory
- * added this way); GI_TYPELIB_PATH/GSETTINGS_SCHEMA_DIR are read by
- * GObject Introspection/GLib themselves, as environment variables,
- * not resolved via the DLL search path at all, so they're set
- * explicitly here too.
+/* Minimal native launcher for the portable Windows build. Sets up
+ * the DLL search directory and GI_TYPELIB_PATH/GSETTINGS_SCHEMA_DIR
+ * environment variables, then execs the bundled pythonw.exe against
+ * bin\sit.py -- giving a single double-clickable
+ * SimpleInitiativeTracker.exe with no arguments required.
  */
 #include <windows.h>
 #include <shlwapi.h>
@@ -31,7 +15,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, PWSTR cmdline, int nSh
                     L"Simple Initiative Tracker", MB_OK | MB_ICONERROR);
         return 1;
     }
-    PathRemoveFileSpecW(base_dir);  /* strip "\SimpleInitiativeTracker.exe" -> bundle root */
+    PathRemoveFileSpecW(base_dir);
 
     wchar_t dll_dir[MAX_PATH];
     _snwprintf(dll_dir, MAX_PATH, L"%s\\runtime\\lib", base_dir);

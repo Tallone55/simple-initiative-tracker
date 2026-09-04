@@ -1,30 +1,15 @@
 #!/usr/bin/env python3
 """Resolves the full shared-library dependency closure for one or more
 seed libraries/executables, via recursive `ldd`, and copies every
-resolved library into an output directory -- the piece that makes the
-Linux portable bundle self-contained the way Blender's own "run in
-place" folder is: GTK4, GLib, Pango, cairo, HarfBuzz, gdk-pixbuf, and
-everything else the desktop's own GTK4 isn't guaranteed to have (or
-have at a compatible version) all travel with the app.
+resolved library into an output directory.
 
-A denylist excludes libraries the *host* must supply instead of the
-bundle, split into two reasons:
-
-  - ABI-critical loader/libc family: bundling a different glibc than
-    the one the kernel/loader on the target machine actually uses is
-    far more likely to break things than help -- the same reasoning
-    AppImage/linuxdeploy-built bundles and Blender's own portable
-    Linux build both follow.
-  - Graphics-stack libraries (OpenGL/EGL/Vulkan/DRM/X11/Wayland
-    protocol libraries): these must match the host's actual GPU
-    driver and display server, so bundling a possibly-different build
-    of them risks breaking rendering entirely rather than improving
-    portability.
+A denylist excludes libraries the host must supply instead of the
+bundle: the loader/glibc family (must match the kernel/loader on the
+target machine) and the graphics/X11/Wayland stack (must match the
+host's GPU driver and display server).
 
 Usage:
     collect_shared_libs.py --out DIR SEED [SEED ...]
-
-Each SEED is a path to a shared library or executable to start from.
 """
 
 import argparse
@@ -35,7 +20,7 @@ import sys
 from pathlib import Path
 
 _DENYLIST_PATTERNS = [
-    # -- loader / glibc family: must come from the host --------------
+    # -- loader / glibc family --------------
     r"^ld-linux.*\.so",
     r"^ld64\.so",
     r"^libc\.so",
@@ -49,7 +34,7 @@ _DENYLIST_PATTERNS = [
     r"^libcrypt\.so",
     r"^libanl\.so",
     r"^linux-vdso\.so",
-    # -- graphics stack: must match the host's GPU driver -------------
+    # -- graphics stack --------------
     r"^libGL\.so",
     r"^libGLX.*\.so",
     r"^libGLdispatch\.so",
@@ -59,7 +44,7 @@ _DENYLIST_PATTERNS = [
     r"^libdrm.*\.so",
     r"^libnvidia.*\.so",
     r"^libvulkan.*\.so",
-    # -- X11 / Wayland: must match the host's display server ---------
+    # -- X11 / Wayland --------------
     r"^libX11.*\.so",
     r"^libxcb.*\.so",
     r"^libXext\.so",
@@ -80,9 +65,7 @@ _LDD_LINE_RE = re.compile(r"^\s*(\S+)\s+=>\s+(\S+)\s+\(0x[0-9a-fA-F]+\)\s*$")
 
 
 def _ldd_dependencies(path):
-    """Direct shared-library dependencies of `path`, as {name: resolved_path},
-    for whichever lines `ldd` could actually resolve to a real file
-    (skips "not found" and vdso-style entries with no real path)."""
+    """Direct dependencies of `path` as {name: resolved_path}."""
     result = subprocess.run(["ldd", str(path)], capture_output=True, text=True)
     deps = {}
     for line in result.stdout.splitlines():
@@ -94,8 +77,8 @@ def _ldd_dependencies(path):
 
 
 def collect_closure(seeds):
-    """Recursively resolves every seed's full dependency closure.
-    Returns {library_name: resolved_path}, denylisted entries excluded."""
+    """Returns {library_name: resolved_path}, denylisted entries
+    excluded."""
     closure = {}
     queue = list(seeds)
     seen_paths = set()
