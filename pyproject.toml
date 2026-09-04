@@ -1,12 +1,12 @@
 [project]
 name = "simple-initiative-tracker"
-version = "1.0.0rc9"
+version = "1.0.0rc10"
 description = "A lightweight GTK4 combat initiative tracker for tabletop games."
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 authors = [
-    {name = "Thomas Hall", email = "hall.thomas.010@gmail.com"},
+    {name = "Thomas Hall", email = "sit@mystive.net"},
 ]
 dependencies = [
     "meson>=1.11.2",

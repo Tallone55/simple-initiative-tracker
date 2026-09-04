@@ -10,7 +10,7 @@
 # Run from anywhere:
 #     ./packaging/build_linux_portable.sh
 #
-# Output: packaging/dist/initiative-tracker-<version>-linux-x86_64.tar.gz
+# Output: packaging/dist/<package-name>-<version>-linux-x86_64.tar.gz
 #
 # Portability boundary: everything the app needs travels in
 # runtime/ (Python, GTK4, GLib, Pango, cairo, HarfBuzz, gdk-pixbuf,

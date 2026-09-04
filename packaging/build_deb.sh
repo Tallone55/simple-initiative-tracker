@@ -4,7 +4,7 @@
 # Run from anywhere:
 #     ./packaging/build_deb.sh
 #
-# Output: packaging/dist/initiative-tracker_<version>_all.deb
+# Output: packaging/dist/<package-name>_<version>_all.deb
 
 set -euo pipefail
 

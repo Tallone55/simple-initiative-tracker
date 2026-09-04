@@ -12,7 +12,7 @@
 # Run from anywhere:
 #     ./packaging/build_windows.sh
 #
-# Output: packaging/dist/initiative-tracker-<version>-windows-x86_64.exe
+# Output: packaging/dist/<package-name>-<version>-windows-x86_64.exe
 # (a self-extracting archive; falls back to a plain .zip if 7-Zip
 # isn't installed)
 #
