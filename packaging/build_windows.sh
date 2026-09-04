@@ -71,11 +71,21 @@ SITE_PACKAGES="$MINGW_ROOT/lib/python$PYTHON_VERSION/site-packages"
 
 cp -a "$MINGW_ROOT/bin"/python3*.dll "$STAGE_DIR/runtime/python/" 2>/dev/null || true
 cp -a "$MINGW_ROOT/bin/python3.exe" "$MINGW_ROOT/bin/pythonw.exe" "$STAGE_DIR/runtime/python/"
-mkdir -p "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/site-packages"
-cp -a "$MINGW_ROOT/lib/python$PYTHON_VERSION"/*.py "$MINGW_ROOT/lib/python$PYTHON_VERSION"/*.zip \
-    "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/" 2>/dev/null || true
-cp -a "$MINGW_ROOT/lib/python$PYTHON_VERSION/encodings" "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/"
-cp -a "$MINGW_ROOT/lib/python$PYTHON_VERSION/lib-dynload" "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/" 2>/dev/null || true
+# Copies the whole lib/pythonX.Y tree recursively, then strips
+# site-packages, rather than trying to selectively cherry-pick
+# specific globs/subdirectories -- matching build_linux_portable.sh's
+# own approach. An earlier version of this used `cp *.py *.zip` plus
+# two explicitly-named directories (encodings, lib-dynload), which
+# missed every other stdlib *package* (a subdirectory with its own
+# __init__.py, not a bare .py file): collections, importlib, json,
+# email, and dozens more never got copied at all, since a `*.py` glob
+# doesn't match directories or recurse into them. That's a
+# guaranteed-broken import a `*.py` glob can silently produce -- e.g.
+# `import gi` transitively needs pkgutil, which needs collections,
+# which was never in the bundle.
+mkdir -p "$STAGE_DIR/runtime/python/lib"
+cp -a "$MINGW_ROOT/lib/python$PYTHON_VERSION" "$STAGE_DIR/runtime/python/lib/"
+rm -rf "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/site-packages"/*
 
 for pkg in gi cairo; do
     cp -a "$SITE_PACKAGES/$pkg" "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/site-packages/"
