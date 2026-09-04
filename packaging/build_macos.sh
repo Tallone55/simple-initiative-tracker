@@ -139,6 +139,28 @@ else
     echo "Warning: no gdk-pixbuf loaders found under $BREW_PREFIX/lib/gdk-pixbuf-2.0 -- image loading (icons, PNGs, etc.) may not work in the built app." >&2
 fi
 
+# Seeded explicitly, not left to be discovered transitively through
+# the SVG loader plugin's own dependency list: collect_dylibs.py's
+# rpath-based resolution of that plugin's @rpath/librsvg-2.2.dylib
+# reference didn't always succeed in practice (observed directly in
+# a real build log -- "could not resolve @rpath/librsvg-2.2.dylib
+# (depended on by libpixbufloader_svg.dylib)"), for a reason that
+# wasn't fully pinned down. Without librsvg actually present, GTK4's
+# own SVG-based icons (essentially all of them, including this app's
+# own toolbar/table icons) would be unable to render at runtime.
+# Explicit seeding sidesteps needing that transitive resolution to
+# work at all.
+LIBRSVG_PREFIX="$(brew --prefix librsvg 2>/dev/null || true)"
+LIBRSVG_DYLIB=""
+if [ -n "$LIBRSVG_PREFIX" ]; then
+    LIBRSVG_DYLIB="$(find "$LIBRSVG_PREFIX/lib" -name 'librsvg-2.*.dylib' 2>/dev/null | head -1)"
+fi
+if [ -n "$LIBRSVG_DYLIB" ]; then
+    SEEDS+=("$LIBRSVG_DYLIB")
+else
+    echo "Warning: librsvg not found -- is 'brew install librsvg' done? SVG icon rendering (most of GTK4's own icon set) may not work in the built app." >&2
+fi
+
 python3 "$MACOS_DIR/collect_dylibs.py" --out "$CONTENTS/Frameworks" "${SEEDS[@]}"
 
 if [ -d "$GDK_PIXBUF_LOADER_DIR" ]; then
