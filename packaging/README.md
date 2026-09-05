@@ -12,6 +12,8 @@ packaging/
   common/
     app_metadata.sh      -- packaging-only identity constants (display name, launcher command, bundle id)
     project_metadata.sh  -- reads $VERSION/$PKG_NAME/$DESCRIPTION/$MAINTAINER from pyproject.toml (single source of truth)
+    list_needed_stdlib.py -- traces this app's own imports to find exactly which stdlib modules to bundle
+    signing.sh            -- optional GPG/Authenticode/Developer ID signing, gated on credential env vars
   net.mystive.sit.svg    -- app icon, shared by all four build scripts
   linux/
     collect_shared_libs.py  -- ldd-based .so dependency closure walker
@@ -89,6 +91,19 @@ that can drift (this replaced an earlier setup where a standalone
 stale against `pyproject.toml`, and where the app icon lived only
 under `debian/` despite every build script needing it).
 
+**Signing is optional and credential-gated, never fabricated.**
+`common/signing.sh` provides GPG signing (`.deb`/`.tar.gz`), Windows
+Authenticode (`.exe`), and macOS Developer ID codesigning +
+notarization (`.app`), but every one of them only activates when its
+own credential is present as an environment variable, and skips with
+a clear message otherwise -- a GPG keypair, a Windows code-signing
+certificate, and an Apple Developer ID are all things a human has to
+obtain and supply (the latter two specifically require a paid CA
+purchase or Apple Developer Program enrollment), not something a
+build script can generate on its own. See the credential list at the
+top of `.github/workflows/release.yml` for the exact secret names
+each mechanism needs.
+
 **The two portable builds (Linux, and in spirit Windows/macOS too)
 don't use PyInstaller.** They each walk the real shared-library
 dependency graph from scratch (`ldd`/`objdump`/`otool` respectively)
@@ -109,10 +124,16 @@ were actually run end-to-end -- the `.deb` was installed with `dpkg
 an unrelated directory and run with `LD_LIBRARY_PATH`, `PYTHONPATH`,
 `GI_TYPELIB_PATH`, and any venv entirely stripped from the
 environment, confirming it doesn't quietly depend on anything from
-the machine it was built on. `windows/launcher.c` was cross-compiled
-with `mingw-w64-gcc` and confirmed to produce a valid PE32+
-executable. `build_windows.sh`, `build_macos.sh`, and the CI
-workflow's Windows/macOS jobs are believed correct from careful
-review of the real toolchains involved, but haven't been run on
-actual Windows or macOS hardware -- treat their first real run as the
-final verification step, not this document.
+the machine it was built on. GPG signing was verified the same way --
+a real test keypair, a real signature, and a real `gpg --verify`
+confirming it -- and confirmed to degrade cleanly (build succeeds,
+just unsigned) with no key configured, which is the default state for
+anyone who clones this repo without setting up the secrets above.
+`windows/launcher.c` was cross-compiled with `mingw-w64-gcc` and
+confirmed to produce a valid PE32+ executable. `build_windows.sh`,
+`build_macos.sh`, their Authenticode/Developer ID signing paths, and
+the CI workflow's Windows/macOS jobs are believed correct from
+careful review of the real toolchains involved, but haven't been run
+on actual Windows or macOS hardware, or with real certificates --
+treat their first real run as the final verification step, not this
+document.

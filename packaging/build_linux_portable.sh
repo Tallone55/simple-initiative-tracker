@@ -26,6 +26,7 @@ COMMON_DIR="$SCRIPT_DIR/common"
 
 source "$COMMON_DIR/app_metadata.sh"
 source "$COMMON_DIR/project_metadata.sh"
+source "$COMMON_DIR/signing.sh"
 
 ARCH="$(uname -m)"
 BUNDLE_NAME="${PKG_NAME}-${VERSION}-linux-${ARCH}"
@@ -162,7 +163,7 @@ cp /usr/share/glib-2.0/schemas/gschemas.compiled "$STAGE_DIR/runtime/share/glib-
 
 # -- icon ------------------------------------------------
 
-cp "$SCRIPT_DIR/$BUNDLE_ID.svg" "$STAGE_DIR/runtime/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg"
+cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$STAGE_DIR/runtime/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg"
 
 # -- launcher ------------------------------------------------
 
@@ -192,7 +193,9 @@ chmod 755 "$STAGE_DIR/$EXECUTABLE_NAME"
 # -- archive ------------------------------------------------
 
 tar -C "$BUILD_DIR" -czf "$TARBALL" "$BUNDLE_NAME"
+sign_file_gpg "$TARBALL"
 
 echo
 echo "Built: $TARBALL"
+[ -f "$TARBALL.asc" ] && echo "Signature: $TARBALL.asc (verify with: gpg --verify $TARBALL.asc $TARBALL)"
 echo "Run with:   tar xzf $(basename "$TARBALL") && ./${BUNDLE_NAME}/${EXECUTABLE_NAME}"

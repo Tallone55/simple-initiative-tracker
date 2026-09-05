@@ -1,4 +1,4 @@
-from gi.repository import Gio, Gtk
+from gi.repository import Gio, Gtk, Gdk, GLib
 
 from models import InitiativeDatabase
 from creature_dialogs import open_edit_dialog, open_edit_hitpoints_dialog, open_add_creature_dialog
@@ -8,6 +8,7 @@ from column_factory import CreatureColumnFactory
 from undo_manager import UndoManager
 from session_manager import SessionManager
 from app_menus import build_hamburger_menu
+from ui_paths import APP_ICON_PATH
 from app_mode import Mode, MODE_LABELS, MODE_TO_INT, mode_from_int
 from app_metadata import APP_NAME, VERSION, MAINTAINER, MAINTAINER_EMAIL, REPO_URL
 import creature_commands
@@ -304,6 +305,10 @@ class AppWindow(Gtk.ApplicationWindow):
         about.set_website_label("GitHub Repository")
         about.set_authors([f"{MAINTAINER} <{MAINTAINER_EMAIL}>"])
         about.set_license_type(Gtk.License.MIT_X11)
+        try:
+            about.set_logo(Gdk.Texture.new_from_filename(APP_ICON_PATH))
+        except GLib.Error:
+            pass
         about.present()
 
     def on_close_request(self, window):

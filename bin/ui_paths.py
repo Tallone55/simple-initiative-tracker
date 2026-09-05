@@ -1,7 +1,7 @@
-"""Locations of the app's .ui files. Resolved relative to this file's
-own directory for normal/installed execution, or relative to the
-frozen executable's data directory (sys._MEIPASS or sys.executable)
-when bundled via e.g. PyInstaller."""
+"""Locations of the app's .ui files and icon. Resolved relative to
+this file's own directory for normal/installed execution, or relative
+to the frozen executable's data directory (sys._MEIPASS or
+sys.executable) when bundled via e.g. PyInstaller."""
 
 import sys
 from pathlib import Path
@@ -22,3 +22,4 @@ EDIT_HITPOINTS_UI_PATH = str(UI_DIR / "edit-hitpoints.ui")
 ADD_CREATURE_UI_PATH = str(UI_DIR / "add-creature.ui")
 UNSAVED_CHANGES_UI_PATH = str(UI_DIR / "unsaved-changes.ui")
 EDIT_ROUND_UI_PATH = str(UI_DIR / "edit-round.ui")
+APP_ICON_PATH = str(UI_DIR / "net.mystive.sit.svg")

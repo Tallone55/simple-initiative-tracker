@@ -14,6 +14,7 @@ COMMON_DIR="$SCRIPT_DIR/common"
 
 source "$COMMON_DIR/app_metadata.sh"
 source "$COMMON_DIR/project_metadata.sh"
+source "$COMMON_DIR/signing.sh"
 
 BUILD_DIR="$SCRIPT_DIR/build/deb"
 PKGROOT="$BUILD_DIR/pkgroot"
@@ -42,7 +43,7 @@ Version: $VERSION
 Section: games
 Priority: optional
 Architecture: all
-Depends: python3 (>= 3.10), python3-gi, gir1.2-gtk-4.0 (>= 4.10)
+Depends: python3 (>= 3.10), python3-gi, gir1.2-gtk-4.0 (>= 4.10), librsvg2-common
 Maintainer: $MAINTAINER ($MAINTAINER_EMAIL)
 Description: $APP_NAME
  $DESCRIPTION
@@ -123,7 +124,7 @@ Terminal=false
 StartupNotify=true
 DESKTOP
 
-ICON_SRC="$SCRIPT_DIR/$BUNDLE_ID.svg"
+ICON_SRC="$PROJECT_ROOT/ui/$BUNDLE_ID.svg"
 if [ ! -f "$ICON_SRC" ]; then
     echo "Error: expected icon at $ICON_SRC (not found)." >&2
     exit 1
@@ -139,8 +140,10 @@ chmod 755 "$PKGROOT/DEBIAN/postinst" "$PKGROOT/DEBIAN/prerm" "$PKGROOT/usr/bin/$
 # -- build ------------------------------------------------
 
 dpkg-deb --build --root-owner-group "$PKGROOT" "$DEB_FILE"
+sign_file_gpg "$DEB_FILE"
 
 echo
 echo "Built: $DEB_FILE"
+[ -f "$DEB_FILE.asc" ] && echo "Signature: $DEB_FILE.asc (verify with: gpg --verify $DEB_FILE.asc $DEB_FILE)"
 echo "Install with:  sudo apt install $DEB_FILE"
 echo "Run with:      $EXECUTABLE_NAME"

@@ -31,6 +31,7 @@ WIN_DIR="$SCRIPT_DIR/windows"
 
 source "$COMMON_DIR/app_metadata.sh"
 source "$COMMON_DIR/project_metadata.sh"
+source "$COMMON_DIR/signing.sh"
 
 if [ "${MSYSTEM:-}" != "MINGW64" ]; then
     echo "Error: this script must be run from an MSYS2 MINGW64 shell (found MSYSTEM='${MSYSTEM:-<unset>}')." >&2
@@ -173,13 +174,14 @@ cp "$MINGW_ROOT/share/glib-2.0/schemas/gschemas.compiled" "$STAGE_DIR/runtime/sh
 
 # -- icon ------------------------------------------------
 
-cp "$SCRIPT_DIR/$BUNDLE_ID.svg" "$STAGE_DIR/runtime/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg"
+cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$STAGE_DIR/runtime/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg"
 
 # -- native launcher ------------------------------------------------
 
 x86_64-w64-mingw32-gcc -municode -mwindows -O2 \
     -o "$STAGE_DIR/${APP_NAME// /}.exe" \
     "$WIN_DIR/launcher.c" -lshlwapi
+sign_file_authenticode "$STAGE_DIR/${APP_NAME// /}.exe"
 
 # -- archive (self-extracting .exe) ------------------------------------------------
 
@@ -221,6 +223,7 @@ SFXCONFIG
 
     cat "$SFX_MODULE" "$SFX_CONFIG" "$ARCHIVE_7Z" > "$OUTPUT_EXE"
     chmod 755 "$OUTPUT_EXE"
+    sign_file_authenticode "$OUTPUT_EXE"
 
     echo
     echo "Built: $OUTPUT_EXE"

@@ -25,18 +25,31 @@ MACOS_DIR="$SCRIPT_DIR/macos"
 
 source "$COMMON_DIR/app_metadata.sh"
 source "$COMMON_DIR/project_metadata.sh"
+source "$COMMON_DIR/signing.sh"
 
 # Dereferences symlinks (rather than cp -a/ditto, which both hit
 # "File exists" errors partway through Homebrew's heavily-aliased
 # install layout) so every recursive copy below is unconditionally
 # safe regardless of how many alias chains a given tree happens to
-# have.
+# have. Handles both a directory (shutil.copytree) and a single file
+# (shutil.copy2) as src -- needed because the traced-stdlib copy loop
+# below calls this once per traced name, and a name is just as often
+# a bare top-level module (e.g. __future__.py) as it is a package
+# directory (e.g. collections); copytree alone raises
+# NotADirectoryError on the former, confirmed directly from a real
+# build's own traceback.
 copy_tree() {
     python3 -c '
-import shutil, sys
+import os, shutil, sys
 src, dst = sys.argv[1], sys.argv[2]
-shutil.rmtree(dst, ignore_errors=True)
-shutil.copytree(src, dst, symlinks=False, dirs_exist_ok=True)
+if os.path.isdir(dst):
+    shutil.rmtree(dst)
+elif os.path.exists(dst):
+    os.remove(dst)
+if os.path.isdir(src):
+    shutil.copytree(src, dst, symlinks=False, dirs_exist_ok=True)
+else:
+    shutil.copy2(src, dst, follow_symlinks=True)
 ' "$1" "$2"
 }
 
@@ -116,9 +129,11 @@ SITE_PACKAGES="$("$PYTHON_FRAMEWORK_BIN" -c 'import sysconfig; print(sysconfig.g
 #     discovered and bundled the same validated way -- rather than
 #     assuming, unverified, that nothing beyond what Homebrew's
 #     python@ formula happens to need at this moment in time. cp -L
-#     dereferences the symlink brew's own python3 typically is,
-#     since copy_tree (shutil.copytree) requires a directory and
-#     can't take a single file.
+#     dereferences the symlink brew's own python3 typically is; a
+#     plain shell copy is simpler than reaching for copy_tree for
+#     this one known, single file (copy_tree handles a single file
+#     too, not just a directory, but doesn't need to be used just
+#     because it can be).
 #   - lib/python$PYTHON_VERSION/ is the traced stdlib: import every
 #     one of this app's own bin/*.py files and record what actually
 #     lands in sys.modules, then copy only that -- the same
@@ -250,7 +265,7 @@ codesign --force --sign - "$PYTHON_BIN" 2>/dev/null || true
 
 # -- icon ------------------------------------------------
 
-ICON_SVG="$SCRIPT_DIR/$BUNDLE_ID.svg"
+ICON_SVG="$PROJECT_ROOT/ui/$BUNDLE_ID.svg"
 ICONSET_DIR="$BUILD_DIR/$BUNDLE_ID.iconset"
 rm -rf "$ICONSET_DIR"
 mkdir -p "$ICONSET_DIR"
@@ -300,9 +315,12 @@ chmod 755 "$CONTENTS/MacOS/$EXECUTABLE_NAME"
 
 rm -rf "${DIST_DIR:?}/$APP_BUNDLE_NAME"
 copy_tree "$APP_DIR" "$DIST_DIR/$APP_BUNDLE_NAME"
+sign_app_macos "$DIST_DIR/$APP_BUNDLE_NAME"
 
 echo
 echo "Built: $DIST_DIR/$APP_BUNDLE_NAME"
 echo "Run with:   open \"$DIST_DIR/$APP_BUNDLE_NAME\""
-echo "(Unsigned -- first launch needs a right-click > Open, or:"
-echo " xattr -cr \"$DIST_DIR/$APP_BUNDLE_NAME\"  to clear the quarantine flag)"
+if [ -z "${SIT_MACOS_SIGN_IDENTITY:-}" ]; then
+    echo "(Unsigned -- first launch needs a right-click > Open, or:"
+    echo " xattr -cr \"$DIST_DIR/$APP_BUNDLE_NAME\"  to clear the quarantine flag)"
+fi
