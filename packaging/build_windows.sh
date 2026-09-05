@@ -136,15 +136,27 @@ if [ ! -f "$GTK_DLL" ]; then
     exit 1
 fi
 
-SEEDS=("$GTK_DLL" "$PIXBUF_QUERY_LOADERS")
+SEEDS=("$GTK_DLL")
+[ -f "$ADWAITA_DLL" ] && SEEDS+=("$ADWAITA_DLL")
+
+# PIXBUF_QUERY_LOADERS and the gi/cairo extension modules are each
+# already copied to their own specific destination elsewhere in this
+# script (the extensions as part of the whole gi/cairo site-packages
+# copy above, gdk-pixbuf-query-loaders.exe to runtime/lib/gdk-pixbuf-
+# 2.0/ directly) -- walk-only, not regular seeds, so collect_dlls.py
+# validates and walks their own imports without duplicating the files
+# themselves into runtime/lib a second time (confirmed as a real,
+# measured duplication bug for the equivalent Linux collector; fixed
+# there and applied here on the same reasoning, since the underlying
+# design is shared).
+WALK_ONLY_ARGS=("--walk-only" "$PIXBUF_QUERY_LOADERS")
 if [ -n "$GI_EXT" ]; then
-    SEEDS+=("$GI_EXT")
+    WALK_ONLY_ARGS+=("--walk-only" "$GI_EXT")
 else
     echo "Warning: PyGObject's _gi extension module wasn't found -- the built app likely can't import gi at runtime." >&2
 fi
-[ -n "$GI_CAIRO_EXT" ] && SEEDS+=("$GI_CAIRO_EXT")
-[ -n "$PYCAIRO_EXT" ] && SEEDS+=("$PYCAIRO_EXT")
-[ -f "$ADWAITA_DLL" ] && SEEDS+=("$ADWAITA_DLL")
+[ -n "$GI_CAIRO_EXT" ] && WALK_ONLY_ARGS+=("--walk-only" "$GI_CAIRO_EXT")
+[ -n "$PYCAIRO_EXT" ] && WALK_ONLY_ARGS+=("--walk-only" "$PYCAIRO_EXT")
 
 PIXBUF_LOADER="$(find "$MINGW_ROOT/lib/gdk-pixbuf-2.0" -name 'libpixbufloader-*.dll' 2>/dev/null | head -1)"
 if [ -z "$PIXBUF_LOADER" ]; then
@@ -153,12 +165,13 @@ if [ -z "$PIXBUF_LOADER" ]; then
 fi
 PIXBUF_LOADER_DIR="$(dirname "$PIXBUF_LOADER")"
 for loader in "$PIXBUF_LOADER_DIR"/*.dll; do
-    SEEDS+=("$loader")
+    WALK_ONLY_ARGS+=("--walk-only" "$loader")
 done
 
 python3 "$WIN_DIR/collect_dlls.py" \
     --out "$STAGE_DIR/runtime/lib" \
     --search-path "$MINGW_ROOT/bin" \
+    "${WALK_ONLY_ARGS[@]}" \
     "${SEEDS[@]}"
 
 cp "$PIXBUF_LOADER_DIR"/*.dll "$STAGE_DIR/runtime/lib/gdk-pixbuf-2.0/loaders/"

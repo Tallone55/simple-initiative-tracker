@@ -39,16 +39,14 @@ def _dependencies(path):
     name (the first line of otool -L's output)."""
     result = subprocess.run(["otool", "-L", str(path)], capture_output=True, text=True)
     lines = result.stdout.splitlines()[1:]
+    own_name = _own_install_name(path)
     deps = []
     for i, line in enumerate(lines):
         match = _OTOOL_LINE_RE.match(line)
         if not match:
             continue
-        if i == 0:
-            id_result = subprocess.run(["otool", "-D", str(path)], capture_output=True, text=True)
-            id_lines = [l for l in id_result.stdout.splitlines() if l.strip() and not l.endswith(":")]
-            if id_lines and id_lines[0].strip() == match.group(1):
-                continue
+        if i == 0 and match.group(1) == own_name:
+            continue
         deps.append(match.group(1))
     return deps
 
@@ -76,11 +74,47 @@ def _resolve(name, loader_path, rpaths):
     return Path(name)
 
 
-def collect_closure(seeds):
+def _own_install_name(path):
+    """The file's own compiled install name (via `otool -D`) -- the
+    exact string other files reference it by in their own load
+    commands -- or None if it doesn't have one (e.g. an executable
+    rather than a dylib)."""
+    result = subprocess.run(["otool", "-D", str(path)], capture_output=True, text=True)
+    lines = [l for l in result.stdout.splitlines() if l.strip() and not l.endswith(":")]
+    return lines[0].strip() if lines else None
+
+
+def collect_closure(seeds, walk_only_seeds=()):
     """Returns {resolved_path: original_dependency_name}, denylisted
-    entries excluded."""
+    entries excluded. Includes `seeds` themselves, not just their
+    discovered dependencies: a seed only ends up copied into the
+    bundle today if something else in the seed set happens to link
+    against it directly (confirmed directly -- this silently failed
+    for librsvg, seeded specifically because nothing else in this set
+    depends on it, so it was correctly walked for its own
+    dependencies but never itself copied, since the copy step in
+    main() only ever iterated over discovered dependencies, not
+    seeds). Recorded under the seed's own compiled install name where
+    it has one, matching how a discovered dependency is recorded --
+    that's the exact string another file's load commands would
+    reference it by, which a bare filename isn't guaranteed to be.
+    `walk_only_seeds` are walked for their own dependencies the same
+    way, but never added to the output themselves -- for a seed
+    that's only here to make sure its *dependencies* get discovered,
+    because the seed file itself is already being copied to some
+    other, more specific destination by the caller (confirmed
+    necessary directly: the gi/cairo Python extension modules and the
+    bundled interpreter binary are each already copied elsewhere by
+    build_macos.sh -- as part of the whole gi/cairo package copy, and
+    to Resources/python/bin/, respectively -- so seeding them as
+    regular seeds here would duplicate them uselessly into Frameworks
+    too, the same bug just fixed for librsvg). If a walk-only seed
+    also turns out to be some other file's regular dependency, it's
+    still collected normally through that path -- this only
+    suppresses adding the seed *as a seed*."""
     closure = {}
-    queue = [Path(s).resolve() for s in seeds]
+    walk_only_paths = {Path(s).resolve() for s in walk_only_seeds}
+    queue = [Path(s).resolve() for s in seeds] + [Path(s).resolve() for s in walk_only_seeds]
     seen = set()
 
     while queue:
@@ -88,6 +122,8 @@ def collect_closure(seeds):
         if current in seen or not current.is_file():
             continue
         seen.add(current)
+        if current not in closure and current not in walk_only_paths:
+            closure[current] = _own_install_name(current) or current.name
 
         rpaths = _own_rpaths(current)
         for name in _dependencies(current):
@@ -131,13 +167,18 @@ def _rewrite_install_names(out_dir, collected_names):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, help="Output directory for resolved dylibs")
+    parser.add_argument(
+        "--walk-only", action="append", default=[], dest="walk_only",
+        help="Seed to walk for dependencies without copying the seed itself (repeatable) -- "
+             "for a seed already copied to its own destination by the caller",
+    )
     parser.add_argument("seeds", nargs="+", help="Seed dylibs/executables to resolve from")
     args = parser.parse_args()
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    closure = collect_closure(args.seeds)
+    closure = collect_closure(args.seeds, args.walk_only)
 
     for resolved, original_name in closure.items():
         dest = out_dir / resolved.name

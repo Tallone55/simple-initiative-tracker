@@ -95,11 +95,26 @@ def _resolve(name, search_paths):
     return None
 
 
-def collect_closure(seeds, search_paths):
+def collect_closure(seeds, search_paths, walk_only_seeds=()):
     """Returns {dll_name: resolved_path}, denylisted/unresolvable
-    entries excluded."""
+    entries excluded. Includes `seeds` themselves, not just their
+    imported DLL names: a seed only ends up copied into the bundle
+    today if something else in the seed set happens to import it
+    directly, so anything seeded specifically because nothing else in
+    the set imports it would otherwise be silently missing from the
+    output (found and fixed for exactly this reason in the macOS
+    collector's own librsvg seed; the same design gap exists here).
+    `walk_only_seeds` are walked for their own imports the same way,
+    but never added to the output themselves -- for a seed that's
+    only here to make sure its *imports* get discovered, because the
+    seed file itself is already being copied to some other, more
+    specific destination by the caller. If a walk-only seed also
+    turns out to be some other file's regular import, it's still
+    collected normally through that path -- this only suppresses
+    adding the seed *as a seed*."""
     closure = {}
-    queue = list(seeds)
+    walk_only_paths = {Path(s).resolve() for s in walk_only_seeds}
+    queue = list(seeds) + list(walk_only_seeds)
     seen = set()
 
     while queue:
@@ -108,6 +123,9 @@ def collect_closure(seeds, search_paths):
         if current_path in seen or not current_path.is_file():
             continue
         seen.add(current_path)
+        seed_name = Path(current).name
+        if seed_name not in closure and current_path not in walk_only_paths:
+            closure[seed_name] = current_path
 
         for name in _imported_dll_names(current_path):
             if _DENYLIST_RE.match(name):
@@ -131,13 +149,18 @@ def main():
         "--search-path", action="append", required=True, dest="search_paths",
         help="Directory to resolve imported DLL names against (repeatable, tried in order)",
     )
+    parser.add_argument(
+        "--walk-only", action="append", default=[], dest="walk_only",
+        help="Seed to walk for imports without copying the seed itself (repeatable) -- "
+             "for a seed already copied to its own destination by the caller",
+    )
     parser.add_argument("seeds", nargs="+", help="Seed DLLs/executables to resolve from")
     args = parser.parse_args()
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    closure = collect_closure(args.seeds, args.search_paths)
+    closure = collect_closure(args.seeds, args.search_paths, args.walk_only)
 
     for name, resolved in sorted(closure.items()):
         shutil.copy2(resolved, out_dir / name)

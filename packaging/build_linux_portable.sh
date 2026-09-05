@@ -137,17 +137,38 @@ if [ -z "$GTK_LIB" ]; then
     exit 1
 fi
 
-SEEDS=("$GTK_LIB" "$GI_EXT" "$GI_CAIRO_EXT" "$PYCAIRO_EXT" "$PIXBUF_QUERY_LOADERS" "$PYTHON_INTERPRETER/bin/python$PYTHON_VERSION")
+SEEDS=("$GTK_LIB")
 [ -n "$ADWAITA_LIB" ] && SEEDS+=("$ADWAITA_LIB")
 
 # gdk-pixbuf loaders are dlopen()'d plugins, not link-time
-# dependencies, so their own deps need seeding explicitly too.
+# dependencies, so their own deps need walking explicitly too --
+# walk-only, not regular seeds, since the loader files and the
+# gdk-pixbuf-query-loaders binary are already copied to their own
+# gdk-pixbuf-2.0/ subdirectory below, not this flat output (a regular
+# seed is copied into this flat output too, which produced a real,
+# measured duplicate here: confirmed directly, every loader file
+# ending up both in runtime/lib/ -- unused, nothing loads them from
+# there -- and in the correct runtime/lib/gdk-pixbuf-2.0/loaders/).
+# The same applies to the gi/cairo extension modules and the Python
+# interpreter binary itself: each is already copied to its own
+# specific destination elsewhere in this script (the extensions as
+# part of the whole gi/cairo package copy above, the interpreter to
+# runtime/python/bin/), so they're seeded here only to validate and
+# walk *their* dependencies, not to be re-copied into this flat
+# output a second time.
 GDK_PIXBUF_LOADER_DIR="$(dirname "$(find /usr/lib -name 'libpixbufloader-*.so' | head -1)")"
+WALK_ONLY_ARGS=(
+    "--walk-only" "$GI_EXT"
+    "--walk-only" "$GI_CAIRO_EXT"
+    "--walk-only" "$PYCAIRO_EXT"
+    "--walk-only" "$PYTHON_INTERPRETER/bin/python$PYTHON_VERSION"
+    "--walk-only" "$PIXBUF_QUERY_LOADERS"
+)
 for loader in "$GDK_PIXBUF_LOADER_DIR"/*.so; do
-    SEEDS+=("$loader")
+    WALK_ONLY_ARGS+=("--walk-only" "$loader")
 done
 
-python3 "$SCRIPT_DIR/linux/collect_shared_libs.py" --out "$STAGE_DIR/runtime/lib" "${SEEDS[@]}"
+python3 "$SCRIPT_DIR/linux/collect_shared_libs.py" --out "$STAGE_DIR/runtime/lib" "${WALK_ONLY_ARGS[@]}" "${SEEDS[@]}"
 
 cp "$GDK_PIXBUF_LOADER_DIR"/*.so "$STAGE_DIR/runtime/lib/gdk-pixbuf-2.0/loaders/"
 cp "$PIXBUF_QUERY_LOADERS" "$STAGE_DIR/runtime/lib/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders"

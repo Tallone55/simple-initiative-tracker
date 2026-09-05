@@ -186,17 +186,30 @@ if [ -z "$GTK_DYLIB" ]; then
     exit 1
 fi
 
-SEEDS=("$GTK_DYLIB" "$PIXBUF_QUERY_LOADERS" "$PYTHON_FRAMEWORK_BIN")
-[ -n "$GI_EXT" ] && SEEDS+=("$GI_EXT")
-[ -n "$GI_CAIRO_EXT" ] && SEEDS+=("$GI_CAIRO_EXT")
-[ -n "$PYCAIRO_EXT" ] && SEEDS+=("$PYCAIRO_EXT")
+SEEDS=("$GTK_DYLIB")
 [ -n "$ADWAITA_DYLIB" ] && SEEDS+=("$ADWAITA_DYLIB")
+
+# PIXBUF_QUERY_LOADERS, PYTHON_FRAMEWORK_BIN, and the gi/cairo
+# extension modules are each already copied to their own specific
+# destination elsewhere in this script (the extensions as part of the
+# whole gi/cairo package copy, the interpreter to Resources/python/
+# bin/, gdk-pixbuf-query-loaders to Resources/lib/gdk-pixbuf-2.0/
+# directly) -- walk-only, not regular seeds, so collect_dylibs.py
+# validates and walks their own dependencies without duplicating the
+# files themselves into Frameworks a second time (confirmed as a
+# real, measured duplication bug for the equivalent Linux collector;
+# fixed there and applied here on the same reasoning, since the
+# underlying design is shared).
+WALK_ONLY_ARGS=("--walk-only" "$PIXBUF_QUERY_LOADERS" "--walk-only" "$PYTHON_FRAMEWORK_BIN")
+[ -n "$GI_EXT" ] && WALK_ONLY_ARGS+=("--walk-only" "$GI_EXT")
+[ -n "$GI_CAIRO_EXT" ] && WALK_ONLY_ARGS+=("--walk-only" "$GI_CAIRO_EXT")
+[ -n "$PYCAIRO_EXT" ] && WALK_ONLY_ARGS+=("--walk-only" "$PYCAIRO_EXT")
 
 GDK_PIXBUF_LOADER="$(find "$BREW_PREFIX/lib/gdk-pixbuf-2.0" -name 'libpixbufloader-*.so' 2>/dev/null | head -1)"
 if [ -n "$GDK_PIXBUF_LOADER" ]; then
     GDK_PIXBUF_LOADER_DIR="$(dirname "$GDK_PIXBUF_LOADER")"
     for loader in "$GDK_PIXBUF_LOADER_DIR"/*.so; do
-        SEEDS+=("$loader")
+        WALK_ONLY_ARGS+=("--walk-only" "$loader")
     done
 else
     GDK_PIXBUF_LOADER_DIR=""
@@ -213,7 +226,12 @@ fi
 # own SVG-based icons (essentially all of them, including this app's
 # own toolbar/table icons) would be unable to render at runtime.
 # Explicit seeding sidesteps needing that transitive resolution to
-# work at all.
+# work at all. A *regular* seed, not walk-only: unlike the loaders
+# above, nothing else copies librsvg anywhere, so this is the only
+# thing that gets it into Frameworks at all -- and was in fact still
+# missing after being added as a seed here, until collect_dylibs.py
+# itself was fixed to actually copy its seeds rather than only their
+# discovered dependencies.
 LIBRSVG_PREFIX="$(brew --prefix librsvg 2>/dev/null || true)"
 LIBRSVG_DYLIB=""
 if [ -n "$LIBRSVG_PREFIX" ]; then
@@ -225,7 +243,7 @@ else
     echo "Warning: librsvg not found -- is 'brew install librsvg' done? SVG icon rendering (most of GTK4's own icon set) may not work in the built app." >&2
 fi
 
-python3 "$MACOS_DIR/collect_dylibs.py" --out "$CONTENTS/Frameworks" "${SEEDS[@]}"
+python3 "$MACOS_DIR/collect_dylibs.py" --out "$CONTENTS/Frameworks" "${WALK_ONLY_ARGS[@]}" "${SEEDS[@]}"
 
 if [ -d "$GDK_PIXBUF_LOADER_DIR" ]; then
     cp "$GDK_PIXBUF_LOADER_DIR"/*.so "$CONTENTS/Resources/lib/gdk-pixbuf-2.0/loaders/"
@@ -262,6 +280,25 @@ fi
 
 codesign --force --sign - "$PYTHON_BIN" 2>/dev/null || true
 [ -n "$GI_EXT" ] && codesign --force --sign - "$GI_EXT_BUNDLED" 2>/dev/null || true
+
+# gdk-pixbuf loader plugins (copied above, unlike everything collect_
+# dylibs.py handles, straight from Homebrew with no rpath rewriting
+# at all) need their own rpath added the same way: without it, each
+# loader keeps only its original Homebrew-absolute rpath entries, so
+# a loader whose own dependency isn't already resolvable through
+# those (librsvg specifically -- confirmed directly, the SVG loader
+# depends on librsvg but nothing else in this bundle links against it
+# directly, so it's collected as its own seed rather than someone
+# else's dependency, landing in Contents/Frameworks with no path from
+# Resources/lib/gdk-pixbuf-2.0/loaders/ back to it) can't be found at
+# all on a machine that doesn't have that same Homebrew layout.
+if [ -d "$CONTENTS/Resources/lib/gdk-pixbuf-2.0/loaders" ]; then
+    for loader in "$CONTENTS/Resources/lib/gdk-pixbuf-2.0/loaders"/*.so; do
+        [ -e "$loader" ] || continue
+        install_name_tool -add_rpath "@loader_path/../../../../Frameworks" "$loader" 2>/dev/null || true
+        codesign --force --sign - "$loader" 2>/dev/null || true
+    done
+fi
 
 # -- icon ------------------------------------------------
 

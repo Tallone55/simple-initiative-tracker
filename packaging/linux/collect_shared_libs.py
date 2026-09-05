@@ -76,11 +76,30 @@ def _ldd_dependencies(path):
     return deps
 
 
-def collect_closure(seeds):
+def collect_closure(seeds, walk_only_seeds=()):
     """Returns {library_name: resolved_path}, denylisted entries
-    excluded."""
+    excluded. Includes `seeds` themselves, not just their discovered
+    dependencies: a seed only ends up copied into the bundle today if
+    something else in the seed set happens to link against it
+    directly, so anything seeded specifically because nothing else in
+    the set depends on it would otherwise be silently missing from
+    the output (found and fixed for exactly this reason in the macOS
+    collector's own librsvg seed). `walk_only_seeds` are walked for
+    their own dependencies the same way, but never added to the
+    output themselves -- for a seed that's only here to make sure its
+    *dependencies* get discovered, because the seed file itself is
+    already being copied to some other, more specific destination by
+    the caller (confirmed necessary directly: without this
+    distinction, gdk-pixbuf's loader plugins -- seeded so libpng/
+    libjpeg/etc. get discovered, but already copied to their own
+    gdk-pixbuf-2.0/loaders/ subdirectory separately -- ended up
+    duplicated uselessly into this script's own flat output too). If
+    a walk-only seed also turns out to be some other file's regular
+    dependency, it's still collected normally through that path --
+    this only suppresses adding the seed *as a seed*."""
     closure = {}
-    queue = list(seeds)
+    walk_only_paths = {Path(s).resolve() for s in walk_only_seeds}
+    queue = list(seeds) + list(walk_only_seeds)
     seen_paths = set()
 
     while queue:
@@ -89,6 +108,20 @@ def collect_closure(seeds):
         if current_path in seen_paths or not current_path.is_file():
             continue
         seen_paths.add(current_path)
+        # Path(current).name, not current_path.name: the pre-resolution
+        # name matches the soname convention _ldd_dependencies uses for
+        # a discovered dependency (ldd itself reports a soname-named
+        # symlink as the resolved path, not the further-versioned real
+        # file it may itself point to), whereas resolving symlinks
+        # first can land on that real file's own longer name instead.
+        # Mismatching between the two produced a real, measured
+        # duplicate here: the same library ending up copied under both
+        # names, e.g. libXau.so.6 (correct) and libXau.so.6.0.0 (the
+        # resolved real file, unnecessary and unreferenced under that
+        # name by anything).
+        seed_name = Path(current).name
+        if seed_name not in closure and current_path not in walk_only_paths:
+            closure[seed_name] = str(current_path)
 
         for name, resolved in _ldd_dependencies(current_path).items():
             if _DENYLIST_RE.match(name):
@@ -103,13 +136,18 @@ def collect_closure(seeds):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, help="Output directory for resolved libraries")
+    parser.add_argument(
+        "--walk-only", action="append", default=[], dest="walk_only",
+        help="Seed to walk for dependencies without copying the seed itself (repeatable) -- "
+             "for a seed already copied to its own destination by the caller",
+    )
     parser.add_argument("seeds", nargs="+", help="Seed libraries/executables to resolve from")
     args = parser.parse_args()
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    closure = collect_closure(args.seeds)
+    closure = collect_closure(args.seeds, args.walk_only)
 
     for name, resolved in sorted(closure.items()):
         dest = out_dir / name
