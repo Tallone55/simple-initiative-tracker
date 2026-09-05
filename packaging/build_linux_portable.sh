@@ -63,13 +63,58 @@ mkdir -p \
 # -- application source ------------------------------------------------
 
 cp "$PROJECT_ROOT"/bin/*.py "$STAGE_DIR/bin/"
+_stamp_app_metadata "$STAGE_DIR/bin/app_metadata.py"
 cp "$PROJECT_ROOT"/ui/*.ui "$STAGE_DIR/ui/"
 
 # -- portable Python interpreter ------------------------------------------------
 
-cp -a "$PYTHON_INTERPRETER" "$STAGE_DIR/runtime/python"
-rm -rf "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/site-packages"/*
+# Built up explicitly from proven-needed pieces, rather than copying
+# the whole interpreter prefix and pruning specific things out
+# afterward (bin/'s other executables -- pip, idle, pydoc,
+# python3.14-config; include/; share/; Tcl/Tk's native libraries;
+# the unused libpythonX.Y.so.1.0 -- all had to be discovered and
+# removed by hand in earlier passes at this, one at a time, which is
+# exactly the same architectural problem this replaces on Windows.
+# Nothing here is copied speculatively:
+#   - bin/python$PYTHON_VERSION is the one executable the launcher
+#     script actually runs; confirmed directly (ldd) its own only
+#     dependencies are the standard glibc family already covered by
+#     collect_shared_libs.py's own denylist as host-provided -- so
+#     it's also seeded into that same closure walk below, the same
+#     validate-before-bundling mechanism already used for the GTK
+#     stack, rather than asserted once and left unverified against
+#     a future Python version that might need something new.
+#   - lib/python$PYTHON_VERSION/ is the traced stdlib (unchanged
+#     from before): import every one of this app's own bin/*.py
+#     files and record what actually lands in sys.modules, then copy
+#     only that -- the same dependency-tracing technique packagers
+#     like PyInstaller use internally (see list_needed_stdlib.py's
+#     own docstring).
+#   - site-packages holds only gi/cairo and their dist-info, same as
+#     before.
+mkdir -p "$STAGE_DIR/runtime/python/bin"
+cp -a "$PYTHON_INTERPRETER/bin/python$PYTHON_VERSION" "$STAGE_DIR/runtime/python/bin/"
 
+BUNDLED_STDLIB="$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION"
+mkdir -p "$BUNDLED_STDLIB"
+NEEDED_STDLIB_NAMES="$(uv run --project "$PROJECT_ROOT" python "$COMMON_DIR/list_needed_stdlib.py" "$PROJECT_ROOT/bin")"
+if [ -z "$NEEDED_STDLIB_NAMES" ]; then
+    echo "Error: list_needed_stdlib.py produced no output -- the trace itself failed." >&2
+    exit 1
+fi
+while IFS= read -r name; do
+    name="${name%$'\r'}"
+    [ -z "$name" ] && continue
+    src="$PYTHON_INTERPRETER/lib/python$PYTHON_VERSION/$name"
+    if [ ! -e "$src" ]; then
+        echo "Warning: traced stdlib name '$name' not found at $src -- skipping." >&2
+        continue
+    fi
+    cp -a "$src" "$BUNDLED_STDLIB/"
+done <<< "$NEEDED_STDLIB_NAMES"
+find "$BUNDLED_STDLIB" -name '__pycache__' -type d -prune -exec rm -rf {} +
+
+mkdir -p "$BUNDLED_STDLIB/site-packages"
 for pkg in gi cairo; do
     cp -a "$VENV_SITE_PACKAGES/$pkg" "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/site-packages/"
 done
@@ -91,7 +136,7 @@ if [ -z "$GTK_LIB" ]; then
     exit 1
 fi
 
-SEEDS=("$GTK_LIB" "$GI_EXT" "$GI_CAIRO_EXT" "$PYCAIRO_EXT" "$PIXBUF_QUERY_LOADERS")
+SEEDS=("$GTK_LIB" "$GI_EXT" "$GI_CAIRO_EXT" "$PYCAIRO_EXT" "$PIXBUF_QUERY_LOADERS" "$PYTHON_INTERPRETER/bin/python$PYTHON_VERSION")
 [ -n "$ADWAITA_LIB" ] && SEEDS+=("$ADWAITA_LIB")
 
 # gdk-pixbuf loaders are dlopen()'d plugins, not link-time

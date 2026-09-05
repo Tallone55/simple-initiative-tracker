@@ -78,6 +78,7 @@ mkdir -p \
 # -- application source ------------------------------------------------
 
 cp "$PROJECT_ROOT"/bin/*.py "$CONTENTS/Resources/bin/"
+_stamp_app_metadata "$CONTENTS/Resources/bin/app_metadata.py"
 cp "$PROJECT_ROOT"/ui/*.ui "$CONTENTS/Resources/ui/"
 
 # -- portable Python interpreter ------------------------------------------------
@@ -96,9 +97,57 @@ PYTHON_BASE_PREFIX="$("$PYTHON_FRAMEWORK_BIN" -c 'import sys; print(sys.base_pre
 PYTHON_VERSION="$("$PYTHON_FRAMEWORK_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 SITE_PACKAGES="$("$PYTHON_FRAMEWORK_BIN" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
 
-copy_tree "$PYTHON_BASE_PREFIX" "$CONTENTS/Resources/python"
-rm -rf "$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages"/*
+# Built up explicitly from proven-needed pieces, rather than copying
+# the whole interpreter prefix and pruning specific things out
+# afterward (bin/'s other executables, include/, share/, Tcl/Tk's
+# native libraries -- all had to be discovered and removed by hand in
+# an earlier pass at this, one at a time, which is exactly the same
+# architectural problem this replaces on Windows). Confirmed directly
+# on Linux, where this exact approach could be run and measured
+# end-to-end, that it produces a smaller and more correct result than
+# copying everything and pruning known offenders afterward -- an
+# explicit include list can't be caught out by some other bit of
+# bloat nobody thought to check for, the way an exclude list always
+# can.
+#   - bin/python3 (the one executable the launcher script actually
+#     runs, matching $PYTHON_BIN below) is seeded into the same
+#     collect_dylibs.py closure walk used for the GTK stack, so
+#     whatever native libraries the interpreter itself needs get
+#     discovered and bundled the same validated way -- rather than
+#     assuming, unverified, that nothing beyond what Homebrew's
+#     python@ formula happens to need at this moment in time. cp -L
+#     dereferences the symlink brew's own python3 typically is,
+#     since copy_tree (shutil.copytree) requires a directory and
+#     can't take a single file.
+#   - lib/python$PYTHON_VERSION/ is the traced stdlib: import every
+#     one of this app's own bin/*.py files and record what actually
+#     lands in sys.modules, then copy only that -- the same
+#     dependency-tracing technique packagers like PyInstaller use
+#     internally (see list_needed_stdlib.py's own docstring).
+#   - site-packages holds only gi/cairo and their dist-info.
+mkdir -p "$CONTENTS/Resources/python/bin"
+cp -L "$PYTHON_FRAMEWORK_BIN" "$CONTENTS/Resources/python/bin/python3"
 
+BUNDLED_STDLIB="$CONTENTS/Resources/python/lib/python$PYTHON_VERSION"
+mkdir -p "$BUNDLED_STDLIB"
+NEEDED_STDLIB_NAMES="$("$PYTHON_FRAMEWORK_BIN" "$COMMON_DIR/list_needed_stdlib.py" "$PROJECT_ROOT/bin")"
+if [ -z "$NEEDED_STDLIB_NAMES" ]; then
+    echo "Error: list_needed_stdlib.py produced no output -- the trace itself failed." >&2
+    exit 1
+fi
+while IFS= read -r name; do
+    name="${name%$'\r'}"
+    [ -z "$name" ] && continue
+    src="$PYTHON_BASE_PREFIX/lib/python$PYTHON_VERSION/$name"
+    if [ ! -e "$src" ]; then
+        echo "Warning: traced stdlib name '$name' not found at $src -- skipping." >&2
+        continue
+    fi
+    copy_tree "$src" "$BUNDLED_STDLIB/$name"
+done <<< "$NEEDED_STDLIB_NAMES"
+find "$BUNDLED_STDLIB" -name '__pycache__' -type d -prune -exec rm -rf {} +
+
+mkdir -p "$BUNDLED_STDLIB/site-packages"
 for pkg in gi cairo; do
     copy_tree "$SITE_PACKAGES/$pkg" "$CONTENTS/Resources/python/lib/python$PYTHON_VERSION/site-packages/$pkg"
 done
@@ -122,7 +171,7 @@ if [ -z "$GTK_DYLIB" ]; then
     exit 1
 fi
 
-SEEDS=("$GTK_DYLIB" "$PIXBUF_QUERY_LOADERS")
+SEEDS=("$GTK_DYLIB" "$PIXBUF_QUERY_LOADERS" "$PYTHON_FRAMEWORK_BIN")
 [ -n "$GI_EXT" ] && SEEDS+=("$GI_EXT")
 [ -n "$GI_CAIRO_EXT" ] && SEEDS+=("$GI_CAIRO_EXT")
 [ -n "$PYCAIRO_EXT" ] && SEEDS+=("$PYCAIRO_EXT")

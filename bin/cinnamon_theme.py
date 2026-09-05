@@ -5,9 +5,24 @@ links against it, and doesn't reach GTK4 apps under Cinnamon natively).
 
 Colors are read from the active theme's gtk-4.0/gtk[-dark].css file
 where present, falling back to its libadwaita-1.X/defaults-*.css file,
-and finally to libadwaita's own stock defaults."""
+and finally to libadwaita's own stock defaults.
 
+That whole theme-name/CSS-file lookup is Cinnamon-specific and has no
+equivalent on Windows or macOS -- neither has a GSettings schema for
+it at all, so sync_theme() used to just return None immediately on
+either platform and leave the app on whatever GTK4's own default
+(light) theme is, dark-mode preference included. The stock-defaults
+fallback _resolve_colors() already falls through to whenever no theme
+name is known is platform-agnostic, though, so it's reused directly:
+on Windows/macOS, sync_theme() instead detects just the OS's light/
+dark preference through a platform-native check and applies those
+same stock colors -- no theme name, no CSS file parsing, just the
+light/dark color set this module already had on hand."""
+
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 from gi.repository import Gio, GLib, Gtk, Gdk
@@ -72,13 +87,19 @@ _fallback_provider = None
 def sync_theme(gtk_settings=None):
     """Call once from Application.do_startup. Returns the live
     Gio.Settings object (callers must keep a reference alive), or None
-    if Cinnamon's GSettings schema isn't present."""
+    if Cinnamon isn't the desktop actually running (Windows, macOS,
+    or a Linux session running some other desktop -- GNOME, KDE, ...)
+    -- on Windows/macOS specifically, this still applies a light/dark
+    preference detected natively for that platform, just without any
+    of the theme-name/CSS-file lookups that only make sense for
+    Cinnamon."""
     global _current_gtk_settings
     gtk_settings = gtk_settings or Gtk.Settings.get_default()
     _current_gtk_settings = gtk_settings
 
-    settings = _try_open_schema("org.cinnamon.desktop.interface")
+    settings = _try_open_schema("org.cinnamon.desktop.interface") if _running_desktop_is_cinnamon() else None
     if settings is None:
+        _sync_platform_dark_mode()
         return None
 
     def apply(*_args):
@@ -100,6 +121,78 @@ def sync_theme(gtk_settings=None):
     settings.connect("changed::gtk-theme", apply)
     settings.connect("changed::icon-theme", apply_icon_theme)
     return settings
+
+
+def _running_desktop_is_cinnamon():
+    """Whether Cinnamon is the desktop session actually running, via
+    XDG_CURRENT_DESKTOP -- the freedesktop-standardized way a running
+    session identifies itself. Used in place of a schema-existence
+    check alone: that only proves the cinnamon-desktop package is
+    installed, not that Cinnamon is the session in use, which matters
+    on any system with more than one desktop environment installed
+    (the schema can be present while a completely different desktop
+    -- GNOME, KDE -- is what's actually running) and is exactly the
+    distinction that matters once GNOME/KDE get their own theming
+    paths alongside this one, rather than this one being a false
+    positive for either of them. XDG_CURRENT_DESKTOP can list more
+    than one value, colon-separated; DESKTOP_SESSION is checked too,
+    as a less-standardized but still common secondary signal."""
+    xdg_current = os.environ.get("XDG_CURRENT_DESKTOP", "")
+    desktop_ids = [d.strip().lower() for d in xdg_current.split(":") if d.strip()]
+    if any(d in ("cinnamon", "x-cinnamon") for d in desktop_ids):
+        return True
+    return os.environ.get("DESKTOP_SESSION", "").strip().lower() == "cinnamon"
+
+
+def _sync_platform_dark_mode():
+    """Windows/macOS fallback path: no theme name, just a light/dark
+    preference detected natively for the platform, applied through the
+    same stock-color fallback _resolve_colors() already has -- see
+    _detect_platform_dark_mode() for the two platform checks. A
+    one-time check made at startup, not a live watch for the OS
+    setting changing while the app is running (which would need a
+    native, non-stdlib notification API on both platforms)."""
+    global _current_prefers_dark
+    prefers_dark = _detect_platform_dark_mode()
+    if prefers_dark is not None:
+        _current_prefers_dark = prefers_dark
+        _apply_theme()
+
+
+def _detect_platform_dark_mode():
+    """True/False for Windows/macOS's own dark-mode preference, or
+    None if the platform isn't one of those two, or the check itself
+    couldn't be completed. Deliberately doesn't touch
+    _current_theme_name -- nothing here is a theme name, just a
+    light/dark preference."""
+    if sys.platform == "win32":
+        try:
+            import winreg
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            )
+            try:
+                value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            finally:
+                winreg.CloseKey(key)
+            return value == 0
+        except (OSError, ImportError):
+            return None
+
+    if sys.platform == "darwin":
+        try:
+            result = subprocess.run(
+                ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                capture_output=True, text=True, timeout=2,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        # macOS only sets this key at all when dark mode is on --
+        # a nonzero exit / empty output means light mode, not an error.
+        return result.returncode == 0 and result.stdout.strip() == "Dark"
+
+    return None
 
 
 def reapply():

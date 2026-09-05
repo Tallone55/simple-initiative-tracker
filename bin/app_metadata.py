@@ -2,17 +2,26 @@
 dialog). Python counterpart to packaging/common/app_metadata.sh and
 project_metadata.sh, which the build scripts use instead.
 
-Reads version/maintainer/repository from pyproject.toml when
-available (running from source); packaged/portable builds, which
-don't ship pyproject.toml alongside bin/, fall back to the hardcoded
-defaults below -- kept in sync with pyproject.toml by hand at
-release time."""
+Reads version/maintainer/repository from pyproject.toml when it's
+actually present -- true when running from source, since pyproject.
+toml sits right alongside bin/'s own parent directory there. Packaged
+builds don't ship pyproject.toml at all (deliberately: shipping a
+whole extra file and parsing TOML at runtime just to read four
+strings is more machinery than the problem needs), so that read
+always fails for them -- but every build script now stamps the
+_FALLBACK_* constants below with the real values via sed, as a build
+step, before packaging bin/ up. That stamping is what makes the
+fallback path actually correct for a packaged build rather than a
+guess frozen at whatever this file happened to say when it was
+written -- confirmed necessary the hard way, when the fallback
+version drifted several point releases stale across builds because
+nothing was updating it at build time yet."""
 
 from pathlib import Path
 
 APP_NAME = "Simple Initiative Tracker"
 
-_FALLBACK_VERSION = "1.0.0rc3"
+_FALLBACK_VERSION = "1.0.0rc10"
 _FALLBACK_MAINTAINER = "Thomas Hall"
 _FALLBACK_MAINTAINER_EMAIL = "hall.thomas.010@gmail.com"
 _FALLBACK_REPO_URL = "https://github.com/Tallone55/simple-initiative-tracker"
