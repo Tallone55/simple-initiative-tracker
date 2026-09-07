@@ -102,6 +102,7 @@ PRERM
 cp "$PROJECT_ROOT"/bin/*.py "$PKGROOT/usr/lib/$PKG_NAME/bin/"
 _stamp_app_metadata "$PKGROOT/usr/lib/$PKG_NAME/bin/app_metadata.py"
 cp "$PROJECT_ROOT"/ui/*.ui "$PKGROOT/usr/lib/$PKG_NAME/ui/"
+cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$PKGROOT/usr/lib/$PKG_NAME/ui/"
 
 # -- launcher ------------------------------------------------
 
@@ -117,9 +118,10 @@ cat > "$PKGROOT/usr/share/applications/$BUNDLE_ID.desktop" << DESKTOP
 Type=Application
 Name=$APP_NAME
 Comment=Track combat initiative order for tabletop games
-Exec=$EXECUTABLE_NAME
+Exec=$EXECUTABLE_NAME %f
 Icon=$BUNDLE_ID
 Categories=Game;Utility;
+MimeType=text/csv;
 Terminal=false
 StartupNotify=true
 DESKTOP

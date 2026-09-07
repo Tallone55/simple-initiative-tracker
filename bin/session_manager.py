@@ -100,22 +100,34 @@ class SessionManager:
     # -- import ------------------------------------------------
 
     def try_import(self):
+        self._try_import_generic(self._begin_import)
+
+    def try_import_path(self, path):
+        """Like try_import(), but for a path already known -- the app
+        was launched (or re-activated, already running) to open a
+        specific file directly, e.g. via "Open With" or a file
+        manager association -- so this skips the file picker
+        entirely, going straight to that path once any unsaved-
+        changes check clears."""
+        self._try_import_generic(lambda: self._import_from_path(path))
+
+    def _try_import_generic(self, begin_import):
         self._after_export_callback = None
         if self.dirty:
             open_unsaved_changes_dialog(
                 self.window,
-                on_export=self._export_then_import,
-                on_discard=self._begin_import,
+                on_export=lambda: self._export_then_import_generic(begin_import),
+                on_discard=begin_import,
                 message=(
                     "You have unexported changes. Importing will replace "
                     "the current list. Export first?"
                 ),
             )
         else:
-            self._begin_import()
+            begin_import()
 
-    def _export_then_import(self):
-        self._after_export_callback = self._begin_import
+    def _export_then_import_generic(self, begin_import):
+        self._after_export_callback = begin_import
         if self.last_file_path:
             self._export_to_path(self.last_file_path)
         else:

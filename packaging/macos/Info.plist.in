@@ -26,5 +26,24 @@
     <true/>
     <key>NSHumanReadableCopyright</key>
     <string>@APP_NAME@</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Comma-Separated Values</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.comma-separated-values-text</string>
+            </array>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>csv</string>
+            </array>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+        </dict>
+    </array>
 </dict>
 </plist>

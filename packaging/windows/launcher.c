@@ -67,8 +67,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, PWSTR cmdline, int nSh
     wchar_t script[MAX_PATH];
     _snwprintf(script, MAX_PATH, L"%s\\bin\\sit.py", base_dir);
 
-    wchar_t command[MAX_PATH * 2];
-    _snwprintf(command, MAX_PATH * 2, L"\"%s\" \"%s\"", python_exe, script);
+    wchar_t command[MAX_PATH * 2 + 1024];
+    if (cmdline && cmdline[0] != L'\0') {
+        /* cmdline is whatever the launching process passed after the
+         * program name -- a file path from "Open With", a file
+         * manager association, or a drag-and-drop -- already in
+         * command-line form (quoted as needed by whatever invoked
+         * this launcher), so it's appended as-is. */
+        _snwprintf(command, MAX_PATH * 2 + 1024, L"\"%s\" \"%s\" %s", python_exe, script, cmdline);
+    } else {
+        _snwprintf(command, MAX_PATH * 2 + 1024, L"\"%s\" \"%s\"", python_exe, script);
+    }
 
     wchar_t log_path[MAX_PATH];
     _snwprintf(log_path, MAX_PATH, L"%s\\sit_error.log", base_dir);

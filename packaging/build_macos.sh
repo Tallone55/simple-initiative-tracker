@@ -93,6 +93,7 @@ mkdir -p \
 cp "$PROJECT_ROOT"/bin/*.py "$CONTENTS/Resources/bin/"
 _stamp_app_metadata "$CONTENTS/Resources/bin/app_metadata.py"
 cp "$PROJECT_ROOT"/ui/*.ui "$CONTENTS/Resources/ui/"
+cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$CONTENTS/Resources/ui/"
 
 # -- portable Python interpreter ------------------------------------------------
 

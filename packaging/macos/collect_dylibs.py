@@ -116,6 +116,7 @@ def collect_closure(seeds, walk_only_seeds=()):
     walk_only_paths = {Path(s).resolve() for s in walk_only_seeds}
     queue = [Path(s).resolve() for s in seeds] + [Path(s).resolve() for s in walk_only_seeds]
     seen = set()
+    unresolved = []  # (name, depended_on_by) pairs -- checked against the final closure afterward, not warned about immediately
 
     while queue:
         current = queue.pop()
@@ -131,14 +132,63 @@ def collect_closure(seeds, walk_only_seeds=()):
                 continue
             resolved = _resolve(name, current.parent, rpaths)
             if resolved is None or not resolved.is_file():
-                print(f"warning: could not resolve {name} (depended on by {current.name})", file=sys.stderr)
+                unresolved.append((name, current.name))
                 continue
             resolved = resolved.resolve()
             if resolved not in closure:
                 closure[resolved] = name
             queue.append(resolved)
 
+    # Deferred rather than printed at the point each one is found: an
+    # unresolved name here only means *that specific resolution
+    # attempt* -- checking this one file's own directory and rpaths --
+    # failed, not that the dependency is actually missing from the
+    # bundle. librsvg is exactly this case: libpixbufloader_svg's own
+    # @rpath/librsvg-2.2.dylib reference can't be resolved from where
+    # that loader plugin originally lives, but librsvg is also its own
+    # explicit seed specifically because of that, and does end up in
+    # the output through that separate path -- confirmed directly,
+    # this warning kept appearing even after librsvg was correctly
+    # being collected, since it was raised before that seed had been
+    # processed. Comparing against final basenames, not full paths:
+    # the name recorded here (e.g. "@rpath/librsvg-2.2.dylib") and the
+    # basename a seed ends up collected under are different strings
+    # for the same file.
+    collected_basenames = {path.name for path in closure}
+    for name, depended_on_by in unresolved:
+        if Path(name).name not in collected_basenames:
+            print(f"warning: could not resolve {name} (depended on by {depended_on_by})", file=sys.stderr)
+
     return closure
+
+
+# install_name_tool prints this to stderr on essentially every
+# successful rewrite -- every dylib touched here gets its signature
+# re-applied immediately afterward anyway (see the codesign loop in
+# _rewrite_install_names), so it's expected noise, not a problem, and
+# not worth a line of build-log output per dylib.
+_EXPECTED_INSTALL_NAME_TOOL_STDERR = "will invalidate the code signature"
+
+
+def _run_install_name_tool(args, dylib, check=False):
+    """Runs an install_name_tool command, suppressing its routine
+    signature-invalidation notice but still surfacing anything else on
+    stderr, or raising on a genuine failure when check=True (matching
+    what plain `check=True` on subprocess.run would have done for the
+    one caller that needs a build-halting failure here) -- rather than
+    the noise-suppression silently swallowing a real problem too."""
+    result = subprocess.run(args, capture_output=True, text=True)
+    unexpected_lines = [
+        line for line in (result.stderr or "").splitlines()
+        if line.strip() and _EXPECTED_INSTALL_NAME_TOOL_STDERR not in line
+    ]
+    if unexpected_lines:
+        print(f"warning: install_name_tool reported an issue with {dylib.name}:", file=sys.stderr)
+        for line in unexpected_lines:
+            print(f"  {line}", file=sys.stderr)
+    if check and result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, args, result.stdout, result.stderr)
+    return result
 
 
 def _rewrite_install_names(out_dir, collected_names):
@@ -149,7 +199,7 @@ def _rewrite_install_names(out_dir, collected_names):
     applied)."""
     dylib_paths = sorted(out_dir.glob("*.dylib"))
     for dylib in dylib_paths:
-        subprocess.run(["install_name_tool", "-id", f"@rpath/{dylib.name}", str(dylib)], check=True)
+        _run_install_name_tool(["install_name_tool", "-id", f"@rpath/{dylib.name}", str(dylib)], dylib, check=True)
 
     for dylib in dylib_paths:
         for name in collected_names:

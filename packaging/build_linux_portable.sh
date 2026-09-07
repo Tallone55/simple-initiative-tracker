@@ -66,6 +66,7 @@ mkdir -p \
 cp "$PROJECT_ROOT"/bin/*.py "$STAGE_DIR/bin/"
 _stamp_app_metadata "$STAGE_DIR/bin/app_metadata.py"
 cp "$PROJECT_ROOT"/ui/*.ui "$STAGE_DIR/ui/"
+cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$STAGE_DIR/ui/"
 
 # -- portable Python interpreter ------------------------------------------------
 

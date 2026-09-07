@@ -15,7 +15,7 @@ import creature_commands
 
 
 class AppWindow(Gtk.ApplicationWindow):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, initial_file_path=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.set_default_size(760, 480)
 
@@ -76,7 +76,10 @@ class AppWindow(Gtk.ApplicationWindow):
         self._sync_selection()
 
         self.connect("close-request", self.on_close_request)
-        self.session.load_cached_file_on_startup()
+        if initial_file_path:
+            self.session.try_import_path(initial_file_path)
+        else:
+            self.session.load_cached_file_on_startup()
 
     # -- construction helpers ------------------------------------------------
 

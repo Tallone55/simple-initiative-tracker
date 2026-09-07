@@ -65,6 +65,7 @@ mkdir -p \
 cp "$PROJECT_ROOT"/bin/*.py "$STAGE_DIR/bin/"
 _stamp_app_metadata "$STAGE_DIR/bin/app_metadata.py"
 cp "$PROJECT_ROOT"/ui/*.ui "$STAGE_DIR/ui/"
+cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$STAGE_DIR/ui/"
 
 # -- portable Python interpreter ------------------------------------------------
 
@@ -217,7 +218,7 @@ SFX_MODULE="$(find "$MINGW_ROOT" \( \
     -o -iname '7zs.sfx' -o -iname '7z.sfx' -o -iname '7zcon.sfx' \
     \) 2>/dev/null | head -1)"
 
-OUTPUT_EXE="$DIST_DIR/${BUNDLE_NAME}.exe"
+OUTPUT_EXE="$DIST_DIR/${BUNDLE_NAME}-portable-installer.exe"
 rm -f "$OUTPUT_EXE"
 
 if [ -n "$SEVEN_ZIP" ] && [ -n "$SFX_MODULE" ]; then
@@ -225,11 +226,18 @@ if [ -n "$SEVEN_ZIP" ] && [ -n "$SFX_MODULE" ]; then
     rm -f "$ARCHIVE_7Z"
     (cd "$BUILD_DIR" && "$SEVEN_ZIP" a -mx=7 "$ARCHIVE_7Z" "$BUNDLE_NAME" >/dev/null)
 
+    # Named and titled as a "portable installer" throughout -- this is
+    # the one-time-use self-extractor downloaded from GitHub, not the
+    # actual application; distinguishing the two matters here
+    # specifically because both end up being .exe files named after
+    # the same app, and someone re-running this one after the initial
+    # extract (rather than the real app executable it unpacked)
+    # re-extracts instead of launching what they meant to.
     SFX_CONFIG="$BUILD_DIR/sfx_config.txt"
     cat > "$SFX_CONFIG" << SFXCONFIG
 ;!@Install@!UTF-8!
-Title="${APP_NAME}"
-BeginPrompt="Extract and run ${APP_NAME} ${VERSION}?"
+Title="${APP_NAME} -- Portable Installer"
+BeginPrompt="Extract the portable ${APP_NAME} ${VERSION} folder and launch it? (Run this once; use ${APP_NAME// /}.exe inside the extracted folder afterward.)"
 RunProgram="${BUNDLE_NAME}\\${APP_NAME// /}.exe"
 ;!@InstallEnd@!
 SFXCONFIG
@@ -240,7 +248,9 @@ SFXCONFIG
 
     echo
     echo "Built: $OUTPUT_EXE"
-    echo "Run with:   double-click ${BUNDLE_NAME}.exe -- it extracts itself and launches ${APP_NAME}."
+    echo "Run with:   double-click ${BUNDLE_NAME}-portable-installer.exe -- it extracts a"
+    echo "            ${BUNDLE_NAME}/ folder and launches ${APP_NAME} from it. That folder's own"
+    echo "            ${APP_NAME// /}.exe, not this installer, is what to use to run the app again later."
 else
     echo "Warning: 7z (with a recognized SFX module) not found -- install mingw-w64-x86_64-7zip for a" >&2
     echo "         single-.exe distributable. Falling back to a .zip of the portable folder." >&2

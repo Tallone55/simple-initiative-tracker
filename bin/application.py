@@ -9,7 +9,10 @@ from cinnamon_theme import sync_theme, reapply as reapply_theme
 
 class Application(Gtk.Application):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, application_id="net.mystive.sit", **kwargs)
+        super().__init__(
+            *args, application_id="net.mystive.sit",
+            flags=Gio.ApplicationFlags.HANDLES_OPEN, **kwargs,
+        )
         self.window = None
 
     def do_startup(self):
@@ -38,6 +41,26 @@ class Application(Gtk.Application):
     def do_activate(self):
         if not self.window:
             self.window = AppWindow(application=self, title="Simple Initiative Tracker")
+        self.window.present()
+        reapply_theme()
+
+    def do_open(self, files, n_files, hint):
+        """Called instead of do_activate() when the app is launched
+        (or, if already running, re-activated -- Gtk.Application is
+        single-instance by default, so a second "open" from the OS
+        reaches this same running process) with one or more files to
+        open, e.g. via "Open With" or a file manager association.
+        Only the first file is used, matching this app's single-
+        document model; extra files are silently ignored rather than
+        opening more windows or erroring."""
+        path = files[0].get_path() if n_files > 0 else None
+        if not self.window:
+            self.window = AppWindow(
+                application=self, title="Simple Initiative Tracker",
+                initial_file_path=path,
+            )
+        elif path:
+            self.window.session.try_import_path(path)
         self.window.present()
         reapply_theme()
 

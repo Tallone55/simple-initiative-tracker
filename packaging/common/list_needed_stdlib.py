@@ -50,6 +50,21 @@ def main():
     bin_dir = os.path.abspath(sys.argv[1])
     sys.path.insert(0, bin_dir)
 
+    # Pinned here explicitly, before importing anything: this walks
+    # bin/*.py in alphabetical order, and application.py -- which
+    # imports Gtk without pinning a version itself, relying on sit.py
+    # having already done so -- sorts before sit.py, the file that
+    # actually calls gi.require_version(). Without pinning it here
+    # too, that produces a real PyGIWarning during this trace
+    # (confirmed directly against a real build log), and more
+    # importantly risks resolving a different GTK typelib version
+    # than the real app would if more than one happens to be
+    # installed on the build machine -- silently changing what this
+    # trace discovers as needed.
+    import gi
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
+
     for filename in sorted(os.listdir(bin_dir)):
         if not filename.endswith(".py"):
             continue
