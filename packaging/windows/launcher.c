@@ -61,6 +61,71 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, PWSTR cmdline, int nSh
     _snwprintf(data_dirs, MAX_PATH, L"%s\\runtime\\share", base_dir);
     SetEnvironmentVariableW(L"XDG_DATA_DIRS", data_dirs);
 
+    /* Regenerated fresh every run, matching the macOS and Linux
+     * portable launchers: the cache gdk-pixbuf-query-loaders.exe
+     * produces embeds absolute paths, which only match wherever this
+     * copy happens to have been extracted to, not wherever it was
+     * built. Without this, gdk-pixbuf has no way to discover any
+     * loader plugin at all -- SVG included, which is what the About
+     * dialog's own icon needs -- since neither a relocatable cache
+     * nor GDK_PIXBUF_MODULE_FILE otherwise ever gets set up on
+     * Windows at all. Best-effort: if this fails for any reason, the
+     * app still launches, just without pixbuf-loader-dependent image
+     * support (this matches how build_windows.sh already treats a
+     * missing pixbuf loader directory as a hard build-time error, but
+     * a failure to regenerate the cache at *launch* time on some
+     * particular machine shouldn't block the app from opening at
+     * all).
+     */
+    wchar_t loaders_glob[MAX_PATH];
+    _snwprintf(loaders_glob, MAX_PATH, L"%s\\runtime\\lib\\gdk-pixbuf-2.0\\loaders\\*.dll", base_dir);
+
+    wchar_t query_loaders_exe[MAX_PATH];
+    _snwprintf(query_loaders_exe, MAX_PATH, L"%s\\runtime\\lib\\gdk-pixbuf-2.0\\gdk-pixbuf-query-loaders.exe", base_dir);
+
+    wchar_t pixbuf_cache[MAX_PATH];
+    _snwprintf(pixbuf_cache, MAX_PATH, L"%s\\runtime\\lib\\gdk-pixbuf-2.0\\loaders.cache.runtime", base_dir);
+
+    wchar_t query_command[MAX_PATH * 2];
+    _snwprintf(query_command, MAX_PATH * 2, L"\"%s\" \"%s\"", query_loaders_exe, loaders_glob);
+
+    SECURITY_ATTRIBUTES cache_sa;
+    ZeroMemory(&cache_sa, sizeof(cache_sa));
+    cache_sa.nLength = sizeof(cache_sa);
+    cache_sa.bInheritHandle = TRUE;
+
+    HANDLE cache_out = CreateFileW(
+        pixbuf_cache, GENERIC_WRITE, FILE_SHARE_READ, &cache_sa,
+        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL
+    );
+    HANDLE cache_err = CreateFileW(
+        L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &cache_sa,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL
+    );
+
+    if (cache_out != INVALID_HANDLE_VALUE) {
+        STARTUPINFOW query_si;
+        ZeroMemory(&query_si, sizeof(query_si));
+        query_si.cb = sizeof(query_si);
+        query_si.dwFlags |= STARTF_USESTDHANDLES;
+        query_si.hStdOutput = cache_out;
+        query_si.hStdError = (cache_err != INVALID_HANDLE_VALUE) ? cache_err : cache_out;
+
+        PROCESS_INFORMATION query_pi;
+        ZeroMemory(&query_pi, sizeof(query_pi));
+
+        if (CreateProcessW(NULL, query_command, NULL, NULL, TRUE, 0, NULL, base_dir, &query_si, &query_pi)) {
+            WaitForSingleObject(query_pi.hProcess, 5000);
+            CloseHandle(query_pi.hProcess);
+            CloseHandle(query_pi.hThread);
+            SetEnvironmentVariableW(L"GDK_PIXBUF_MODULE_FILE", pixbuf_cache);
+        }
+        CloseHandle(cache_out);
+        if (cache_err != INVALID_HANDLE_VALUE) {
+            CloseHandle(cache_err);
+        }
+    }
+
     wchar_t python_exe[MAX_PATH];
     _snwprintf(python_exe, MAX_PATH, L"%s\\runtime\\python\\pythonw.exe", base_dir);
 

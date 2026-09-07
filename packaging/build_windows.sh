@@ -4,7 +4,7 @@
 # MUST be run from an MSYS2 MINGW64 shell on Windows.
 #
 # One-time setup, from an MSYS2 MINGW64 shell:
-#     pacman -S --needed mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita \
+#     pacman -S --needed mingw-w64-x86_64-gtk4 \
 #         mingw-w64-x86_64-python mingw-w64-x86_64-python-gobject \
 #         mingw-w64-x86_64-python-cairo mingw-w64-x86_64-adwaita-icon-theme \
 #         mingw-w64-x86_64-gcc mingw-w64-x86_64-7zip
@@ -126,7 +126,6 @@ done
 # -- GTK4/GLib/etc. DLL closure ------------------------------------------------
 
 GTK_DLL="$MINGW_ROOT/bin/libgtk-4-1.dll"
-ADWAITA_DLL="$MINGW_ROOT/bin/libadwaita-1-0.dll"
 GI_EXT="$(find "$SITE_PACKAGES/gi" -maxdepth 1 -name '_gi*.pyd' ! -name '_gi_cairo*' | head -1)"
 GI_CAIRO_EXT="$(find "$SITE_PACKAGES/gi" -maxdepth 1 -name '_gi_cairo*.pyd' | head -1)"
 PYCAIRO_EXT="$(find "$SITE_PACKAGES/cairo" -maxdepth 1 -name '_cairo*.pyd' | head -1)"
@@ -136,9 +135,29 @@ if [ ! -f "$GTK_DLL" ]; then
     echo "Error: $GTK_DLL not found -- is mingw-w64-x86_64-gtk4 installed?" >&2
     exit 1
 fi
+if [ ! -f "$PIXBUF_QUERY_LOADERS" ]; then
+    echo "Error: $PIXBUF_QUERY_LOADERS not found -- is mingw-w64-x86_64-gdk-pixbuf2 installed?" >&2
+    exit 1
+fi
+if [ -z "$GI_EXT" ]; then
+    echo "Error: PyGObject's _gi extension module not found under $SITE_PACKAGES/gi -- is mingw-w64-x86_64-python-gobject installed?" >&2
+    exit 1
+fi
+if [ -z "$GI_CAIRO_EXT" ]; then
+    echo "Error: PyGObject's _gi_cairo extension module not found under $SITE_PACKAGES/gi -- is mingw-w64-x86_64-python-gobject's cairo integration installed?" >&2
+    exit 1
+fi
+if [ -z "$PYCAIRO_EXT" ]; then
+    echo "Error: pycairo's _cairo extension module not found under $SITE_PACKAGES/cairo -- is mingw-w64-x86_64-python-cairo installed?" >&2
+    exit 1
+fi
 
+# libadwaita is deliberately not bundled: nothing in this app's own
+# code imports Adw or uses an Adw* widget class (confirmed directly --
+# no gi.repository import, no .ui file referencing one), so it isn't
+# a real runtime dependency, just a leftover from an earlier version
+# of the app that never got cleaned up here.
 SEEDS=("$GTK_DLL")
-[ -f "$ADWAITA_DLL" ] && SEEDS+=("$ADWAITA_DLL")
 
 # PIXBUF_QUERY_LOADERS and the gi/cairo extension modules are each
 # already copied to their own specific destination elsewhere in this
@@ -150,14 +169,12 @@ SEEDS=("$GTK_DLL")
 # measured duplication bug for the equivalent Linux collector; fixed
 # there and applied here on the same reasoning, since the underlying
 # design is shared).
-WALK_ONLY_ARGS=("--walk-only" "$PIXBUF_QUERY_LOADERS")
-if [ -n "$GI_EXT" ]; then
-    WALK_ONLY_ARGS+=("--walk-only" "$GI_EXT")
-else
-    echo "Warning: PyGObject's _gi extension module wasn't found -- the built app likely can't import gi at runtime." >&2
-fi
-[ -n "$GI_CAIRO_EXT" ] && WALK_ONLY_ARGS+=("--walk-only" "$GI_CAIRO_EXT")
-[ -n "$PYCAIRO_EXT" ] && WALK_ONLY_ARGS+=("--walk-only" "$PYCAIRO_EXT")
+WALK_ONLY_ARGS=(
+    "--walk-only" "$PIXBUF_QUERY_LOADERS"
+    "--walk-only" "$GI_EXT"
+    "--walk-only" "$GI_CAIRO_EXT"
+    "--walk-only" "$PYCAIRO_EXT"
+)
 
 PIXBUF_LOADER="$(find "$MINGW_ROOT/lib/gdk-pixbuf-2.0" -name 'libpixbufloader-*.dll' 2>/dev/null | head -1)"
 if [ -z "$PIXBUF_LOADER" ]; then

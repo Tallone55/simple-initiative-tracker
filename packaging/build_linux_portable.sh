@@ -127,7 +127,6 @@ done
 # -- GTK4/GLib/etc. shared library closure ------------------------------------------------
 
 GTK_LIB="$(ldconfig -p | awk '/libgtk-4\.so\.1 /{print $NF; exit}')"
-ADWAITA_LIB="$(ldconfig -p | awk '/libadwaita-1\.so\.1 /{print $NF; exit}')"
 GI_EXT="$(find "$VENV_SITE_PACKAGES/gi" -maxdepth 1 -name '_gi.cpython*.so' | head -1)"
 GI_CAIRO_EXT="$(find "$VENV_SITE_PACKAGES/gi" -maxdepth 1 -name '_gi_cairo.cpython*.so' | head -1)"
 PYCAIRO_EXT="$(find "$VENV_SITE_PACKAGES/cairo" -maxdepth 1 -name '_cairo.cpython*.so' | head -1)"
@@ -137,9 +136,31 @@ if [ -z "$GTK_LIB" ]; then
     echo "Error: libgtk-4.so.1 not found via ldconfig -- is GTK4 installed on this build machine?" >&2
     exit 1
 fi
+if [ -z "$GI_EXT" ]; then
+    echo "Error: PyGObject's _gi extension module not found under $VENV_SITE_PACKAGES/gi -- is pygobject installed in this project's venv?" >&2
+    exit 1
+fi
+if [ -z "$GI_CAIRO_EXT" ]; then
+    echo "Error: PyGObject's _gi_cairo extension module not found under $VENV_SITE_PACKAGES/gi -- is pygobject's cairo integration installed?" >&2
+    exit 1
+fi
+if [ -z "$PYCAIRO_EXT" ]; then
+    echo "Error: pycairo's _cairo extension module not found under $VENV_SITE_PACKAGES/cairo -- is pycairo installed in this project's venv?" >&2
+    exit 1
+fi
+if [ -z "$PIXBUF_QUERY_LOADERS" ]; then
+    echo "Error: gdk-pixbuf-query-loaders not found on PATH or under /usr/lib -- is gdk-pixbuf installed on this build machine?" >&2
+    exit 1
+fi
 
+# libadwaita is deliberately not bundled: nothing in this app's own
+# code imports Adw or uses an Adw* widget class (confirmed directly --
+# no gi.repository import, no .ui file referencing one), so it isn't
+# a real runtime dependency, just a leftover from an earlier version
+# of the app that never got cleaned up here. adwaita-icon-theme is a
+# separate, still-needed package (the icon set itself, unrelated to
+# the Adw widget library) and isn't affected by this.
 SEEDS=("$GTK_LIB")
-[ -n "$ADWAITA_LIB" ] && SEEDS+=("$ADWAITA_LIB")
 
 # gdk-pixbuf loaders are dlopen()'d plugins, not link-time
 # dependencies, so their own deps need walking explicitly too --
@@ -157,7 +178,12 @@ SEEDS=("$GTK_LIB")
 # runtime/python/bin/), so they're seeded here only to validate and
 # walk *their* dependencies, not to be re-copied into this flat
 # output a second time.
-GDK_PIXBUF_LOADER_DIR="$(dirname "$(find /usr/lib -name 'libpixbufloader-*.so' | head -1)")"
+GDK_PIXBUF_LOADER="$(find /usr/lib -name 'libpixbufloader-*.so' | head -1)"
+if [ -z "$GDK_PIXBUF_LOADER" ]; then
+    echo "Error: no gdk-pixbuf loader .so files found under /usr/lib -- is gdk-pixbuf installed on this build machine?" >&2
+    exit 1
+fi
+GDK_PIXBUF_LOADER_DIR="$(dirname "$GDK_PIXBUF_LOADER")"
 WALK_ONLY_ARGS=(
     "--walk-only" "$GI_EXT"
     "--walk-only" "$GI_CAIRO_EXT"
@@ -176,11 +202,20 @@ cp "$PIXBUF_QUERY_LOADERS" "$STAGE_DIR/runtime/lib/gdk-pixbuf-2.0/gdk-pixbuf-que
 
 # -- GObject Introspection typelibs ------------------------------------------------
 
-TYPELIB_DIR="$(dirname "$(find /usr/lib -name 'Gtk-4.0.typelib' | head -1)")"
+GTK4_TYPELIB="$(find /usr/lib -name 'Gtk-4.0.typelib' | head -1)"
+if [ -z "$GTK4_TYPELIB" ]; then
+    echo "Error: Gtk-4.0.typelib not found under /usr/lib -- is gir1.2-gtk-4.0 installed on this build machine?" >&2
+    exit 1
+fi
+TYPELIB_DIR="$(dirname "$GTK4_TYPELIB")"
 cp "$TYPELIB_DIR"/*.typelib "$STAGE_DIR/runtime/lib/girepository-1.0/"
 
 # -- GSettings schemas ------------------------------------------------
 
+if [ ! -f /usr/share/glib-2.0/schemas/gschemas.compiled ]; then
+    echo "Error: /usr/share/glib-2.0/schemas/gschemas.compiled not found -- is libglib2.0-bin (or similar) installed and glib-compile-schemas been run on this build machine?" >&2
+    exit 1
+fi
 cp /usr/share/glib-2.0/schemas/gschemas.compiled "$STAGE_DIR/runtime/share/glib-2.0/schemas/"
 
 # -- icon ------------------------------------------------

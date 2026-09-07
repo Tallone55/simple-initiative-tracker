@@ -10,13 +10,28 @@ had enumerated the real, complete list by hand).
 
 None of this app's own imports are local/conditional (all are plain
 module-level `import`/`from` statements), so importing every one of
-its files is enough to capture the complete stdlib closure: Python
-fully executes a module's own import statements the moment it's
-imported, whether or not anything in that module is ever actually
-called. This is the same technique dependency-tracing packagers like
+its files captures every stdlib module *this app's own code* reaches
+for. This is the same technique dependency-tracing packagers like
 PyInstaller and cx_Freeze use internally, applied directly rather
 than adopting the full tool (which has its own known friction with
 PyGObject/GTK4's introspection-based imports).
+
+That guarantee doesn't extend to the stdlib's own internals, though:
+a stdlib module can do its own lazy import inside a function body,
+triggered only when that specific function is *called*, not when the
+module is merely imported -- invisible to this trace unless that
+exact call path happens to run during it. Confirmed directly, not
+hypothetically: pathlib's own Path.as_uri() does `from urllib.request
+import pathname2url` inline, inside the method itself, so `urllib`
+never appeared in sys.modules during this trace despite being a real
+runtime dependency, and a real portable build shipped without it,
+crashing with ModuleNotFoundError the moment cinnamon_theme.py's own
+titlebutton-image resolution called .as_uri() on a real path. Since
+this class of gap can't be found by tracing alone -- there's no way
+to know which stdlib method bodies do their own lazy imports without
+either reading their source or hitting the crash -- confirmed-needed
+names go in _ALWAYS_INCLUDE below as they're found, each with the
+call path that needs it.
 
 Prints one name per line to stdout -- either a bare "<name>.py" file
 or a top-level package directory name under the stdlib's own
@@ -33,6 +48,38 @@ Usage:
 import importlib
 import os
 import sys
+
+# Confirmed-needed stdlib top-level names this trace can't discover on
+# its own (see the lazy-import limitation in the module docstring
+# above), kept alongside whatever call path actually needs each one.
+# Discovered by actually calling the triggering code and diffing
+# sys.modules before/after on the project's own Python 3.14 (not
+# system Python -- confirmed directly that this matters: an earlier
+# pass at this used system Python 3.12 and missed `email` entirely,
+# since 3.12's import chain here happens to differ from 3.14's).
+# Filtered down from the full transitive closure to only the names
+# that actually have a stdlib file to copy -- most of what pathlib's
+# as_uri() pulls in transitively (_socket, _ssl, math, itertools, and
+# a dozen more) are true C built-ins with no separate file, already
+# correctly excluded by the file-under-stdlib-dir check below on
+# their own; only these five aren't.
+_ALWAYS_INCLUDE = {
+    # pathlib.Path.as_uri() -- used by cinnamon_theme.py to build
+    # file:// URIs for CSS background-image references -- does
+    # `from urllib.request import pathname2url` inline inside the
+    # method body itself, not at module level. urllib.request in turn
+    # does top-level `import email`, `import http.client`, and
+    # `import hashlib`; email itself does top-level `import quopri`;
+    # ipaddress is pulled in via urllib.parse. Suffixed with ".py"
+    # for the three that are single-file modules rather than
+    # packages, matching the naming convention the rest of this
+    # trace already uses for that distinction -- confirmed necessary
+    # directly: getting this wrong for even one of these produced a
+    # silent "not found -- skipping" warning in the build log and a
+    # real ModuleNotFoundError at runtime, exactly the failure mode
+    # this whole allowlist exists to prevent in the first place.
+    "urllib", "email", "hashlib.py", "http", "ipaddress.py", "quopri.py",
+}
 
 
 def main():
@@ -63,7 +110,6 @@ def main():
     # trace discovers as needed.
     import gi
     gi.require_version("Gtk", "4.0")
-    gi.require_version("Adw", "1")
 
     for filename in sorted(os.listdir(bin_dir)):
         if not filename.endswith(".py"):
@@ -87,6 +133,8 @@ def main():
         rel = os.path.relpath(file, stdlib_dir)
         top = rel.split(os.sep)[0]
         needed.add(top)
+
+    needed |= _ALWAYS_INCLUDE
 
     for name in sorted(needed):
         print(name)

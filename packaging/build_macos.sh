@@ -4,7 +4,7 @@
 # MUST be run on macOS, with Homebrew's own GTK4 already installed.
 #
 # One-time setup:
-#     brew install gtk4 libadwaita pygobject3 gobject-introspection librsvg
+#     brew install gtk4 pygobject3 gobject-introspection librsvg
 #
 # Run from anywhere:
 #     ./packaging/build_macos.sh
@@ -60,7 +60,7 @@ fi
 
 if ! command -v brew >/dev/null 2>&1; then
     echo "Error: Homebrew not found. Install it from https://brew.sh, then:" >&2
-    echo "  brew install gtk4 libadwaita pygobject3 gobject-introspection librsvg" >&2
+    echo "  brew install gtk4 pygobject3 gobject-introspection librsvg" >&2
     exit 1
 fi
 
@@ -176,7 +176,6 @@ done
 # -- GTK4/GLib/etc. dylib closure ------------------------------------------------
 
 GTK_DYLIB="$(find "$BREW_PREFIX/opt/gtk4/lib" -name 'libgtk-4.*.dylib' | head -1)"
-ADWAITA_DYLIB="$(find "$BREW_PREFIX/opt/libadwaita/lib" -name 'libadwaita-1.*.dylib' 2>/dev/null | head -1)"
 GI_EXT="$(find "$SITE_PACKAGES/gi" -maxdepth 1 -name '_gi.cpython*.so' | head -1)"
 GI_CAIRO_EXT="$(find "$SITE_PACKAGES/gi" -maxdepth 1 -name '_gi_cairo.cpython*.so' | head -1)"
 PYCAIRO_EXT="$(find "$SITE_PACKAGES/cairo" -maxdepth 1 -name '_cairo.cpython*.so' | head -1)"
@@ -186,9 +185,25 @@ if [ -z "$GTK_DYLIB" ]; then
     echo "Error: libgtk-4.dylib not found under $BREW_PREFIX/opt/gtk4/lib -- is 'brew install gtk4' done?" >&2
     exit 1
 fi
+if [ -z "$GI_EXT" ]; then
+    echo "Error: PyGObject's _gi extension module not found under $SITE_PACKAGES/gi -- is pygobject installed in this project's venv?" >&2
+    exit 1
+fi
+if [ -z "$GI_CAIRO_EXT" ]; then
+    echo "Error: PyGObject's _gi_cairo extension module not found under $SITE_PACKAGES/gi -- is pygobject's cairo integration installed?" >&2
+    exit 1
+fi
+if [ -z "$PYCAIRO_EXT" ]; then
+    echo "Error: pycairo's _cairo extension module not found under $SITE_PACKAGES/cairo -- is pycairo installed in this project's venv?" >&2
+    exit 1
+fi
 
+# libadwaita is deliberately not bundled: nothing in this app's own
+# code imports Adw or uses an Adw* widget class (confirmed directly --
+# no gi.repository import, no .ui file referencing one), so it isn't
+# a real runtime dependency, just a leftover from an earlier version
+# of the app that never got cleaned up here.
 SEEDS=("$GTK_DYLIB")
-[ -n "$ADWAITA_DYLIB" ] && SEEDS+=("$ADWAITA_DYLIB")
 
 # PIXBUF_QUERY_LOADERS, PYTHON_FRAMEWORK_BIN, and the gi/cairo
 # extension modules are each already copied to their own specific
@@ -201,31 +216,36 @@ SEEDS=("$GTK_DYLIB")
 # real, measured duplication bug for the equivalent Linux collector;
 # fixed there and applied here on the same reasoning, since the
 # underlying design is shared).
-WALK_ONLY_ARGS=("--walk-only" "$PIXBUF_QUERY_LOADERS" "--walk-only" "$PYTHON_FRAMEWORK_BIN")
-[ -n "$GI_EXT" ] && WALK_ONLY_ARGS+=("--walk-only" "$GI_EXT")
-[ -n "$GI_CAIRO_EXT" ] && WALK_ONLY_ARGS+=("--walk-only" "$GI_CAIRO_EXT")
-[ -n "$PYCAIRO_EXT" ] && WALK_ONLY_ARGS+=("--walk-only" "$PYCAIRO_EXT")
+WALK_ONLY_ARGS=(
+    "--walk-only" "$PIXBUF_QUERY_LOADERS"
+    "--walk-only" "$PYTHON_FRAMEWORK_BIN"
+    "--walk-only" "$GI_EXT"
+    "--walk-only" "$GI_CAIRO_EXT"
+    "--walk-only" "$PYCAIRO_EXT"
+)
 
 GDK_PIXBUF_LOADER="$(find "$BREW_PREFIX/lib/gdk-pixbuf-2.0" -name 'libpixbufloader-*.so' 2>/dev/null | head -1)"
-if [ -n "$GDK_PIXBUF_LOADER" ]; then
-    GDK_PIXBUF_LOADER_DIR="$(dirname "$GDK_PIXBUF_LOADER")"
-    for loader in "$GDK_PIXBUF_LOADER_DIR"/*.so; do
-        WALK_ONLY_ARGS+=("--walk-only" "$loader")
-    done
-else
-    GDK_PIXBUF_LOADER_DIR=""
-    echo "Warning: no gdk-pixbuf loaders found under $BREW_PREFIX/lib/gdk-pixbuf-2.0 -- image loading (icons, PNGs, etc.) may not work in the built app." >&2
+if [ -z "$GDK_PIXBUF_LOADER" ]; then
+    echo "Error: no gdk-pixbuf loaders found under $BREW_PREFIX/lib/gdk-pixbuf-2.0 -- is 'brew install gdk-pixbuf' done? Without these, image loading (icons, PNGs, this app's own SVG icon) wouldn't work in the built app at all." >&2
+    exit 1
 fi
+GDK_PIXBUF_LOADER_DIR="$(dirname "$GDK_PIXBUF_LOADER")"
+for loader in "$GDK_PIXBUF_LOADER_DIR"/*.so; do
+    WALK_ONLY_ARGS+=("--walk-only" "$loader")
+done
 
 # Seeded explicitly, not left to be discovered transitively through
 # the SVG loader plugin's own dependency list: collect_dylibs.py's
 # rpath-based resolution of that plugin's @rpath/librsvg-2.2.dylib
-# reference didn't always succeed in practice (observed directly in
-# a real build log -- "could not resolve @rpath/librsvg-2.2.dylib
-# (depended on by libpixbufloader_svg.dylib)"), for a reason that
-# wasn't fully pinned down. Without librsvg actually present, GTK4's
-# own SVG-based icons (essentially all of them, including this app's
-# own toolbar/table icons) would be unable to render at runtime.
+# reference doesn't succeed (confirmed directly in a real build log --
+# "could not resolve @rpath/librsvg-2.2.dylib (depended on by
+# libpixbufloader_svg.dylib)"), because the loader plugin's own
+# directory and embedded rpaths, which is all that resolution attempt
+# ever checks, simply don't point anywhere near wherever Homebrew's
+# librsvg actually lives -- there was never a mechanism that would
+# make that specific lookup succeed. Without librsvg actually present,
+# GTK4's own SVG-based icons (essentially all of them, including this
+# app's own toolbar/table icons) would be unable to render at runtime.
 # Explicit seeding sidesteps needing that transitive resolution to
 # work at all. A *regular* seed, not walk-only: unlike the loaders
 # above, nothing else copies librsvg anywhere, so this is the only
