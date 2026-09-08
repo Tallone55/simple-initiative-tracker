@@ -171,34 +171,48 @@ pre-flight check for this and fails with a clear message pointing
 back to this explanation, rather than letting PyInstaller fail
 opaquely partway through a build.
 
-Whether Homebrew's or MSYS2's own PyGObject builds hit the same gap,
-and whether an equivalent package exists for either, is **not
-confirmed** -- see the next section.
+Whether Homebrew's own PyGObject build hits the same gap, and whether
+an equivalent introspection-data package exists for it, is **not
+confirmed** -- see the next section. (MSYS2/Windows has since been
+confirmed not to block on this -- see below.)
 
-**Verified for real, on this machine, where the tooling allows it:**
-`build_deb.sh` and `build_linux_portable.sh` are both Linux-native and
-were actually run end-to-end -- the `.deb` was installed with `dpkg
--i` and confirmed to launch; the portable `.tar.gz` was extracted to
-an unrelated directory and run with a real Cinnamon-theme exercise, a
-CSV file-argument launch, and its About-dialog icon all confirmed
-working, with `LD_LIBRARY_PATH`, `PYTHONPATH`, `GI_TYPELIB_PATH`, and
-any venv entirely stripped from the environment, confirming it
-doesn't quietly depend on anything from the machine it was built on.
-GPG signing was verified the same way -- a real test keypair, a real
-signature, and a real `gpg --verify` confirming it -- and confirmed to
-degrade cleanly (build succeeds, just unsigned) with no key
-configured, which is the default state for anyone who clones this
-repo without setting up the secrets above.
+**Verified for real, where the tooling allows it:** `build_deb.sh` and
+`build_linux_portable.sh` are both Linux-native and were actually run
+end-to-end -- the `.deb` was installed with `dpkg -i` and confirmed to
+launch; the portable `.tar.gz` was extracted to an unrelated directory
+and run with a real Cinnamon-theme exercise, a CSV file-argument
+launch, and its About-dialog icon all confirmed working, with
+`LD_LIBRARY_PATH`, `PYTHONPATH`, `GI_TYPELIB_PATH`, and any venv
+entirely stripped from the environment, confirming it doesn't quietly
+depend on anything from the machine it was built on. GPG signing was
+verified the same way -- a real test keypair, a real signature, and a
+real `gpg --verify` confirming it -- and confirmed to degrade cleanly
+(build succeeds, just unsigned) with no key configured, which is the
+default state for anyone who clones this repo without setting up the
+secrets above.
 
-`build_windows.sh` and `build_macos.sh` are **UNTESTED** -- each says
-so plainly in its own header comment. They were written by adapting
-the verified Linux script to each platform's own conventions and
-PyInstaller's own documented `BUNDLE()`/`EXE()` support, but no
-Windows or macOS machine was available to actually build or launch
-either one. In particular, the GIRepository-3.0 gap above was
-diagnosed and fixed on Linux specifically; whether it reproduces on
-Homebrew/MSYS2's own PyGObject builds, and whether an equivalent
-introspection-data package exists for either, is unconfirmed. Treat
-the first real run of either script, on real hardware, as the actual
-verification step -- not this document, and not the CI workflow's own
-best-guess dependency lists for those two jobs.
+`build_windows.sh` has since been confirmed functional on real
+Windows hardware -- it builds and the resulting portable app runs
+correctly, icon included. It was written and initially delivered
+untested (adapted from the verified Linux script to Windows's own
+conventions and PyInstaller's own `EXE()` support), and went through
+several real, on-hardware fixes before reaching this point: an
+MSYS2-path-translation bug in the generated `.spec` file (PyInstaller
+reported the entry script as not found, traced to POSIX-style paths
+embedded in generated text never getting MSYS2's usual argv
+conversion) and a missing app icon (the SVG-to-`.ico` conversion had
+been left as a commented-out manual step rather than real code). Both
+are fixed in the script as it stands now.
+
+`build_macos.sh` remains **UNTESTED** -- it still says so plainly in
+its own header comment. It was written by adapting the verified Linux
+script to macOS's own conventions and PyInstaller's own documented
+`BUNDLE()` support, but no macOS machine has been available to
+actually build or launch it. In particular, the GIRepository-3.0 gap
+above was diagnosed and fixed on Linux specifically, and separately
+confirmed not to block on Windows; whether it reproduces on Homebrew's
+own PyGObject build, and whether an equivalent introspection-data
+package exists for it, is still unconfirmed. Treat the first real run
+of this script, on real macOS hardware, as the actual verification
+step -- not this document, and not the CI workflow's own best-guess
+dependency list for that job.

@@ -2,19 +2,29 @@
 # Builds a portable Windows .exe for Simple Initiative Tracker using
 # PyInstaller.
 #
-# ***UNTESTED*** -- written by adapting the verified Linux build
-# script (build_linux_portable.sh) to Windows's own conventions, but
-# never actually run: no Windows machine was available to build or
-# launch this on. Treat the first real run of this script, on real
-# Windows hardware, as the actual verification step -- not this
-# comment. In particular, the GIRepository-3.0 issue this script
-# works around (see below) was diagnosed and fixed on Linux
-# specifically; whether MSYS2's own PyGObject build hits the same
-# gap, and whether the same fix applies, is not confirmed here.
+# Confirmed functional on real Windows hardware: builds cleanly and
+# the resulting portable app runs correctly, icon included. Was
+# written and initially delivered untested (adapted from the verified
+# Linux build script, build_linux_portable.sh, to Windows's own
+# conventions), then went through two real, on-hardware fixes before
+# reaching this point:
+#   - An MSYS2-path-translation bug in the generated .spec file --
+#     PyInstaller reported the entry script as not found, traced to
+#     POSIX-style paths embedded in generated text never getting
+#     MSYS2's usual argv-to-Windows-path conversion (that conversion
+#     only applies to live command-line arguments, not to text
+#     written into a file a separate process reads back later).
+#   - A missing app icon -- the SVG-to-.ico conversion had been left
+#     as a commented-out manual step rather than real code, so the
+#     .exe carried no icon resource at all and fell back to Windows'
+#     generic default.
+# Both are fixed in the script as it stands now. The GIRepository-3.0
+# issue this script works around (see below) was originally diagnosed
+# and fixed on Linux; confirmed separately, on Windows, not to block
+# here either.
 #
 # MUST be run from an MSYS2 MINGW64 shell on Windows.
 #
-# One-time setup, from an MSYS2 MINGW64 shell:
 # One-time setup, from an MSYS2 MINGW64 shell:
 #     pacman -S --needed mingw-w64-x86_64-gtk4 \
 #         mingw-w64-x86_64-python mingw-w64-x86_64-python-gobject \
@@ -231,5 +241,3 @@ DIST_ZIP="$DIST_DIR/$BUNDLE_NAME.zip"
 echo
 echo "Built: $DIST_ZIP"
 echo "Run with:   unzip $(basename "$DIST_ZIP") && ${BUNDLE_NAME}/${EXECUTABLE_NAME}.exe"
-echo
-echo "UNTESTED -- see this script's own header comment. Verify this actually launches before distributing it."

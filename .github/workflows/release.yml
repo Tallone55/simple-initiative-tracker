@@ -125,20 +125,15 @@ jobs:
             mingw-w64-x86_64-python-pip
             mingw-w64-x86_64-librsvg
             zip
-          # NOTE: this job builds with packaging/build_windows.sh,
-          # which is UNTESTED on real Windows -- see that script's own
-          # header comment. This install list is a best guess at
-          # translating the verified Linux dependencies (see the
-          # Linux job's own "Install GTK4 + PyGObject build
-          # dependencies" step) to MSYS2 package names; it has not
-          # been confirmed to include whatever MSYS2 package (if any)
-          # provides GIRepository-3.0's introspection data, which the
-          # Linux build needed explicitly (gir1.2-girepository-3.0)
-          # to get PyInstaller's own GTK4 hook working. If this job
-          # fails with "Namespace GIRepository not available" or a
-          # startup AttributeError on gi.repository.GObject, that gap
-          # is almost certainly why -- see build_windows.sh's own
-          # header for what to look for.
+          # This job builds with packaging/build_windows.sh, confirmed
+          # functional on a real GitHub Actions Windows runner using
+          # exactly this install list -- see that script's own header
+          # comment for what it took to get there. This list includes
+          # mingw-w64-x86_64-librsvg specifically for icon generation,
+          # and confirms this MSYS2 setup does NOT need an equivalent
+          # to gir1.2-girepository-3.0 (the Linux job's own "Install
+          # GTK4 + PyGObject build dependencies" step needs that one
+          # explicitly; Windows evidently doesn't hit the same gap).
 
       - name: Install PyInstaller
         run: python -m pip install pyinstaller Pillow
