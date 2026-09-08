@@ -15,11 +15,12 @@
 # MUST be run from an MSYS2 MINGW64 shell on Windows.
 #
 # One-time setup, from an MSYS2 MINGW64 shell:
+# One-time setup, from an MSYS2 MINGW64 shell:
 #     pacman -S --needed mingw-w64-x86_64-gtk4 \
 #         mingw-w64-x86_64-python mingw-w64-x86_64-python-gobject \
 #         mingw-w64-x86_64-python-cairo mingw-w64-x86_64-adwaita-icon-theme \
-#         mingw-w64-x86_64-python-pip
-#     python -m pip install pyinstaller
+#         mingw-w64-x86_64-python-pip mingw-w64-x86_64-librsvg
+#     python -m pip install pyinstaller Pillow
 #
 # Run from anywhere:
 #     ./packaging/build_windows.sh
@@ -81,16 +82,41 @@ cp "$PROJECT_ROOT"/bin/*.py "$STAGE_DIR/bin/"
 _stamp_app_metadata "$STAGE_DIR/bin/app_metadata.py"
 
 # -- icon: PyInstaller's EXE() wants a Windows .ico, not the app's own
-#    .svg -- ImageMagick or a similar converter would need to be
-#    available; left as a manual step here since it's untested either
-#    way and this project doesn't otherwise depend on ImageMagick.
-#    Uncomment and adapt once verified on real Windows:
-#
-#    magick "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" -resize 256x256 "$BUILD_DIR/icon.ico"
-#
+#    .svg. Rasterized via rsvg-convert (mingw-w64-x86_64-librsvg --
+#    the same tool the macOS script uses via Homebrew's own librsvg)
+#    at a single high resolution, then packed into a proper
+#    multi-resolution .ico (16/24/32/48/256px, the standard Windows
+#    icon size set -- Explorer, the taskbar, and Alt-Tab each prefer a
+#    different one of these, so shipping only one size makes some of
+#    them look soft or blurry even once an icon shows up at all) via
+#    Pillow, which every PyInstaller install already needs anyway.
+#    Previously left as a commented-out, never-actually-run manual
+#    step -- confirmed directly that this produces exactly the
+#    symptom you'd expect from an .exe with no icon resource embedded
+#    at all: PyInstaller's own EXE(icon="") writes nothing into the
+#    PE's resource section, so Explorer and the taskbar both fall back
+#    to Windows' own generic default application icon instead of
+#    erroring or warning about it.
 ICO_PATH=""
-if [ -f "$BUILD_DIR/icon.ico" ]; then
+if command -v rsvg-convert >/dev/null 2>&1; then
+    RSVG_PNG="$BUILD_DIR/icon-256.png"
+    rsvg-convert -w 256 -h 256 "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" -o "$RSVG_PNG"
+    # See the "Every path interpolated..." comment further down for
+    # why this needs cygpath -m: sys.argv is a live argv element to a
+    # spawned native-Windows python.exe (like --distpath/--workpath
+    # below), which MSYS2 auto-converts -- BUT this project isn't
+    # relying on that auto-conversion working the same way twice in a
+    # row without being able to test it, so it's made explicit here
+    # too rather than assumed.
+    python - "$(cygpath -m "$RSVG_PNG")" "$(cygpath -m "$BUILD_DIR/icon.ico")" << 'PYEOF'
+import sys
+from PIL import Image
+src, dst = sys.argv[1], sys.argv[2]
+Image.open(src).save(dst, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (256, 256)])
+PYEOF
     ICO_PATH="$BUILD_DIR/icon.ico"
+else
+    echo "Warning: rsvg-convert not found -- building without an app icon (install mingw-w64-x86_64-librsvg; see this script's own header comment). The .exe and its taskbar icon will fall back to Windows' generic default icon." >&2
 fi
 
 # -- PyInstaller spec -------------------------------------------------

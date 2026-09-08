@@ -123,6 +123,7 @@ jobs:
             mingw-w64-x86_64-python-cairo
             mingw-w64-x86_64-adwaita-icon-theme
             mingw-w64-x86_64-python-pip
+            mingw-w64-x86_64-librsvg
             zip
           # NOTE: this job builds with packaging/build_windows.sh,
           # which is UNTESTED on real Windows -- see that script's own
@@ -140,7 +141,7 @@ jobs:
           # header for what to look for.
 
       - name: Install PyInstaller
-        run: python -m pip install pyinstaller
+        run: python -m pip install pyinstaller Pillow
 
       - name: Decode Authenticode certificate
         if: ${{ env.SIT_WINDOWS_CERT_BASE64 != '' }}

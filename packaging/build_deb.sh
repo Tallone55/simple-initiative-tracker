@@ -64,6 +64,24 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
 fi
 
+# Cinnamon's own menu watches .desktop files for changes (via GIO's
+# GAppInfoMonitor, inotify-based) and only re-resolves an app's icon
+# when one actually changes -- it does NOT re-check on its own just
+# because the icon cache file above was rebuilt. dpkg unpacking this
+# .desktop file already fires that watcher once, during unpack,
+# strictly before this postinst script (and so the gtk-update-icon-
+# cache call above) has run -- so that first, automatic lookup
+# happens against the still-stale cache, fails, and there's nothing
+# to prompt a second look afterward even once the cache is fixed a
+# moment later. A \`touch\` here forces a second, fresh change event
+# once the cache is already correct, which is the same effect as
+# manually re-editing the entry in Cinnamon's own menu editor and
+# resaving it -- confirmed empirically to make the correct icon
+# appear immediately, with no session restart, which is what this
+# aims to reproduce automatically on every install/upgrade rather
+# than requiring that manual step.
+touch /usr/share/applications/$BUNDLE_ID.desktop 2>/dev/null || true
+
 # \$2 is the previously-configured version when dpkg is upgrading an
 # existing install in place (its own convention: postinst is called
 # as "configure <most-recently-configured-version>"), empty on a

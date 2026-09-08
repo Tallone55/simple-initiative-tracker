@@ -111,6 +111,39 @@ harness to grow alongside the app, at the cost of a larger bundle
 bootloader `dlopen()`s libpython at runtime rather than shipping a
 self-contained interpreter binary the way the previous approach did.
 
+**Some of that gap has since been closed back up, on Linux only, and
+only where it could be fully verified.** PyInstaller's own
+`gi.repository.Gio` hook unconditionally bundles *every* plugin in the
+build machine's `gio/modules/` directory, with no `hooksconfig` knob
+to narrow it -- among them GIO's TLS backend and its two proxy-
+resolution backends, which pull in a self-contained ~12MB cluster
+(gnutls, OpenSSL, curl, LDAP, Kerberos, and their own transitive
+dependencies) that nothing else in this app touches, since it has no
+networking functionality anywhere in its own code. Confirmed directly
+with `ldd` across the entire collected binary set, not assumed:
+nothing outside that cluster references any library in it. Excluded
+by exact filename in `build_linux_portable.sh`'s own `.spec`
+generation, paired with a validation pass that checks the real, built
+bundle for any dangling library reference after the exclusion --
+which is what actually keeps this safe over time, not the exclude
+list itself: if a future GTK/glib update ever makes something else
+start needing one of these, the validation step fails the build
+immediately with the exact missing library named, rather than
+shipping something that only breaks once a user's machine happens to
+exercise that path. UPX binary compression is also enabled on Linux,
+verified to still produce a working build (full app regression suite,
+a real Cinnamon-theme GSettings exercise, and a CSV-file-argument
+launch, all re-run against the pruned and compressed bundle). Neither
+of these is applied to the Windows or macOS scripts: UPX's support for
+Windows PE and macOS Mach-O binaries is comparatively less reliable
+than for Linux ELF, commonly triggers antivirus false-positives on
+Windows specifically, and can conflict with macOS's own codesigning
+and notarization step outright -- and the exact GIO module names and
+transitive dependencies on those platforms haven't been verified at
+all, unlike the Linux case above. Stacking unverified size
+optimizations onto an already-unverified build pipeline isn't a good
+trade, so both platforms are left as they were.
+
 ### The GIRepository-3.0 gap
 
 PyGObject >= 3.52 links its own C extension against

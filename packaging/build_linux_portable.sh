@@ -131,6 +131,47 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
+# PyInstaller's own gi.repository.Gio hook (hook-gi.repository.Gio.py)
+# unconditionally globs and bundles *every* .so in the build
+# machine's gio/modules/ directory -- it has no hooksconfig knob to
+# narrow this, since GIO loads these as runtime plugins rather than
+# via anything PyInstaller's own import-based analysis could trace.
+# Confirmed directly (ldd across the whole collected binary set) that
+# three of these -- GIO's TLS backend and its two proxy-resolution
+# backends -- pull in an entirely self-contained ~12MB cluster
+# (gnutls, openssl's libcrypto, curl, ldap, kerberos, and their own
+# transitive deps) that nothing else in this bundle touches, since
+# this app has no networking functionality anywhere in its own code
+# to exercise Gio's TLS/proxy machinery in the first place. Excluded
+# by destination name below, which -- being just a handful of
+# specific, individually-verified filenames rather than an inferred
+# rule -- stays simple to audit; if this assumption ever stops
+# holding (e.g. a future GTK/glib update makes something else start
+# needing one of these), the validation pass right after PyInstaller
+# runs is what actually catches that, by checking the real, final
+# bundle rather than trusting this list to still be correct on faith.
+_dead_gio_modules = {
+    "gio_modules/libgiognutls.so",
+    "gio_modules/libgiolibproxy.so",
+    "gio_modules/libgiognomeproxy.so",
+}
+_dead_transitive_libs = {
+    "libgnutls.so.30", "libcrypto.so.3", "libcurl-gnutls.so.4",
+    "libldap.so.2", "liblber.so.2", "libproxy.so.1",
+    "libpxbackend-1.0.so", "librtmp.so.1", "libp11-kit.so.0",
+    "libgssapi_krb5.so.2", "libkrb5.so.3", "libkrb5support.so.0",
+    "libk5crypto.so.3", "libkeyutils.so.1", "libnghttp2.so.14",
+    "libsasl2.so.2", "libssh.so.4", "libpsl.so.5", "libidn2.so.0",
+    "libtasn1.so.6",
+}
+import os as _os
+a.binaries = [
+    entry for entry in a.binaries
+    if entry[0] not in _dead_gio_modules
+    and _os.path.basename(entry[0]) not in _dead_transitive_libs
+]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -142,7 +183,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,
+    upx=True,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -155,7 +196,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=False,
+    upx=True,
     upx_exclude=[],
     name="$EXECUTABLE_NAME",
 )
@@ -169,12 +210,70 @@ uv run --extra build python3 -m PyInstaller \
 
 BUNDLE_DIR="$STAGE_DIR/$EXECUTABLE_NAME"
 
+# -- validate the exclusion above is still safe -----------------------
+#
+# Checks the real, final, built bundle -- not the assumption baked
+# into the exclude list above -- for any shared library with a
+# dangling reference to something no longer present. This is what
+# actually keeps the exclusion above safe over time: if a future GTK,
+# glib, or PyInstaller hook update ever makes some other, legitimate
+# part of this bundle start needing one of the libraries excluded
+# above, this fails the build immediately with the exact missing
+# library named, rather than shipping a portable bundle that only
+# fails once some user's machine happens to exercise that code path.
+if command -v ldd >/dev/null 2>&1; then
+    _dangling=""
+    for f in "$BUNDLE_DIR/_internal"/*.so* "$BUNDLE_DIR/_internal/gio_modules"/*.so; do
+        [ -f "$f" ] || continue
+        missing="$(ldd "$f" 2>/dev/null | grep "not found" || true)"
+        if [ -n "$missing" ]; then
+            _dangling="$_dangling\n$(basename "$f"): $missing"
+        fi
+    done
+    if [ -n "$_dangling" ]; then
+        echo "Error: excluding the dead GIO TLS/proxy cluster left a dangling library reference -- something else must now depend on one of the excluded libraries. Re-check packaging/build_linux_portable.sh's own _dead_gio_modules/_dead_transitive_libs lists against this:" >&2
+        printf '%b\n' "$_dangling" >&2
+        exit 1
+    fi
+fi
+
 # -- icon (for desktop integration on systems that pick this up from
 #    a portable extraction -- matches the icon path convention the
 #    .deb build's own desktop file references) ----------------------
 
 mkdir -p "$BUNDLE_DIR/share/icons/hicolor/scalable/apps"
 cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$BUNDLE_DIR/share/icons/hicolor/scalable/apps/"
+
+# -- launcher wrapper --------------------------------------------------
+#
+# GTK4 removed the old GTK3 per-window gtk_window_set_icon_name()/
+# set_icon() APIs entirely -- a GTK4 app's own window/taskbar icon
+# comes only from icon-theme lookup against its own application ID
+# (net.mystive.sit, matching the .svg above), and that lookup only
+# searches the paths listed in $XDG_DATA_DIRS. Confirmed directly:
+# running PyInstaller's own bootloader binary directly, with no
+# wrapper, launches the app fine, but the icon lookup silently misses,
+# since this extracted bundle's own share/ directory was never
+# anywhere on that search path to begin with -- only real system
+# paths are, by default -- and the desktop environment then falls
+# back to its own generic default icon rather than warning about it.
+# The real PyInstaller-built binary is renamed to
+# "$EXECUTABLE_NAME.bin", and this small wrapper -- the thing users
+# and any .desktop Exec= line actually invoke -- sets XDG_DATA_DIRS to
+# include this bundle's own share/ before exec'ing it, the same
+# pattern AppImage-style portable Linux launchers use for exactly this
+# reason. Written to determine its own real binary's name from its own
+# filename at runtime (appending ".bin"), not from a value baked in at
+# build time, so it stays correct if this bundle is ever renamed after
+# extraction.
+mv "$BUNDLE_DIR/$EXECUTABLE_NAME" "$BUNDLE_DIR/$EXECUTABLE_NAME.bin"
+cat > "$BUNDLE_DIR/$EXECUTABLE_NAME" << 'LAUNCHEOF'
+#!/usr/bin/env bash
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export XDG_DATA_DIRS="$HERE/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+exec "$HERE/$(basename "${BASH_SOURCE[0]}").bin" "$@"
+LAUNCHEOF
+chmod +x "$BUNDLE_DIR/$EXECUTABLE_NAME"
 
 # -- archive ----------------------------------------------------------
 
