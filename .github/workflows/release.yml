@@ -93,10 +93,10 @@ jobs:
         run: uv sync --extra build
 
       - name: Build .deb
-        run: ./packaging/build_deb.sh
+        run: bash packaging/build_deb.sh
 
       - name: Build Linux portable .tar.gz
-        run: ./packaging/build_linux_portable.sh
+        run: bash packaging/build_linux_portable.sh
 
       - uses: actions/upload-artifact@v6
         with:
@@ -161,7 +161,7 @@ jobs:
           echo "SIT_WINDOWS_CERT_PATH=$env:RUNNER_TEMP\sit-cert.pfx" >> $env:GITHUB_ENV
 
       - name: Build .exe
-        run: ./packaging/build_windows.sh
+        run: bash packaging/build_windows.sh
 
       - uses: actions/upload-artifact@v6
         with:
@@ -212,7 +212,7 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
 
       - name: Build .app
-        run: ./packaging/build_macos.sh
+        run: bash packaging/build_macos.sh
 
       - name: Zip the .app for upload
         run: |

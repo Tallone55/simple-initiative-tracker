@@ -7,6 +7,15 @@
 #
 # Run from anywhere:
 #     ./packaging/build_all.sh
+#
+# Each of the four scripts above is invoked here via `bash
+# script.sh` rather than a bare `./script.sh`/direct path, so this
+# doesn't depend on their executable bit being set -- that bit is
+# preserved through a normal git clone, but not necessarily through
+# a file that arrived by some other path (e.g. downloaded and
+# manually re-added to the repo) and lost it along the way.
+# Confirmed directly as a real CI failure once: exit code 126,
+# "Permission denied", from exactly that.
 
 set -uo pipefail
 
@@ -31,18 +40,18 @@ run_step() {
 case "$(uname -s)" in
     Linux)
         echo "Linux host detected: building .deb and .tar.gz."
-        run_step ".deb" "$SCRIPT_DIR/build_deb.sh"
-        run_step ".tar.gz (portable)" "$SCRIPT_DIR/build_linux_portable.sh"
+        run_step ".deb" bash "$SCRIPT_DIR/build_deb.sh"
+        run_step ".tar.gz (portable)" bash "$SCRIPT_DIR/build_linux_portable.sh"
         SKIPPED+=(".app -- run build_macos.sh on a macOS machine")
         if [ "${MSYSTEM:-}" = "MINGW64" ]; then
-            run_step ".exe" "$SCRIPT_DIR/build_windows.sh"
+            run_step ".exe" bash "$SCRIPT_DIR/build_windows.sh"
         else
             SKIPPED+=(".exe -- run build_windows.sh from an MSYS2 MINGW64 shell on Windows")
         fi
         ;;
     Darwin)
         echo "macOS host detected: building .app."
-        run_step ".app" "$SCRIPT_DIR/build_macos.sh"
+        run_step ".app" bash "$SCRIPT_DIR/build_macos.sh"
         SKIPPED+=(".deb -- run build_deb.sh on a Linux machine")
         SKIPPED+=(".tar.gz -- run build_linux_portable.sh on a Linux machine")
         SKIPPED+=(".exe -- run build_windows.sh from an MSYS2 MINGW64 shell on Windows")
@@ -50,7 +59,7 @@ case "$(uname -s)" in
     MINGW*|MSYS*)
         if [ "${MSYSTEM:-}" = "MINGW64" ]; then
             echo "Windows (MSYS2 MINGW64) host detected: building .exe."
-            run_step ".exe" "$SCRIPT_DIR/build_windows.sh"
+            run_step ".exe" bash "$SCRIPT_DIR/build_windows.sh"
         else
             echo "Error: running under MSYS/MinGW, but not the MINGW64 environment (MSYSTEM='${MSYSTEM:-<unset>}')." >&2
             echo "Open 'MSYS2 MINGW64' from the Start Menu and re-run from there." >&2
