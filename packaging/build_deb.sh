@@ -25,6 +25,9 @@ DEB_FILE="$DIST_DIR/${PKG_NAME}_${VERSION}_${ARCH}.deb"
 
 echo "Building ${APP_NAME} ${VERSION} (.deb)..."
 
+# rsvg-convert rasterizes a pixmaps fallback icon -- see the comment
+# near ICON_SRC below for why this exists. Needs librsvg2-bin
+# installed on the build machine.
 if ! command -v rsvg-convert >/dev/null 2>&1; then
     echo "Error: rsvg-convert not found -- needed to rasterize a pixmaps fallback icon (see build_deb.sh's own comment near ICON_SRC for why this exists). Install librsvg2-bin." >&2
     exit 1
@@ -83,24 +86,31 @@ fi
 # Cinnamon's own menu watches .desktop files for changes (via GIO's
 # GAppInfoMonitor, inotify-based) and only re-resolves an app's icon
 # when one actually changes -- it does NOT re-check on its own just
-# because the icon cache file above was rebuilt. dpkg unpacking this
-# .desktop file already fires that watcher once, during unpack,
-# strictly before this postinst script (and so the gtk-update-icon-
-# cache call above) has run -- so that first, automatic lookup
-# happens against the still-stale cache, fails, and there's nothing
-# to prompt a second look afterward even once the cache is fixed a
-# moment later. A \`touch\` here forces a second, fresh change event
-# once the cache is already correct, which is the same effect as
-# manually re-editing the entry in Cinnamon's own menu editor and
-# resaving it -- confirmed empirically, once, to make the correct icon
-# appear immediately with no session restart. Reported since as still
-# not always sufficient on its own -- verified directly that the
-# underlying icon-theme.cache file itself is correctly and promptly
-# rebuilt with the right content by the two steps above, in both a
-# fresh install and an upgrade over an existing one, so whatever gap
-# remains is specifically in Cinnamon's own already-running, in-memory
-# state, not the on-disk cache this script controls.
-touch /usr/share/applications/$BUNDLE_ID.desktop 2>/dev/null || true
+# because the icon cache file above was rebuilt. Two different fixes
+# for this were tried directly against real installs and real
+# reinstalls -- a plain \`touch\` of the .desktop file, then a fuller
+# copy-then-rename specifically reproducing the richer file-change
+# event a real reinstall's own file replacement produces (confirmed
+# via inotifywait that touch alone only generates a bare ATTRIB event,
+# versus copy-then-rename's CREATE/MODIFY/CLOSE_WRITE/MOVED_FROM/
+# MOVED_TO sequence) -- and neither fixed a genuinely fresh install
+# (only ever working on a reinstall over one already in place, which
+# doesn't need fixing to begin with). That points to the gap being
+# specifically in how Cinnamon's own already-running app-system object
+# gets constructed the first time it sees this app's ID, not in
+# anything about how the .desktop file itself changes -- a boundary no
+# postinst-side file trick can reach into after the fact. Verified
+# directly, across both attempts, that the underlying icon-theme.cache
+# file itself is correctly and promptly rebuilt with the right content
+# by the two steps above, in both a fresh install and an upgrade over
+# an existing one, so this genuinely isn't about anything wrong with
+# the on-disk cache this script controls.
+#
+# Given that, this doesn't try a third .desktop-file trick. The
+# pixmaps fallback icon below (see the comment near ICON_SRC)
+# addresses the same symptom a different way -- sidestepping
+# hicolor/Cinnamon's own live-refresh behavior entirely, rather than
+# depending on it.
 
 # \$2 is the previously-configured version when dpkg is upgrading an
 # existing install in place (its own convention: postinst is called
@@ -172,21 +182,27 @@ fi
 cp "$ICON_SRC" "$PKGROOT/usr/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg"
 
 # Also rasterized to a plain, single-resolution PNG in
-# /usr/share/pixmaps/ -- a real .deb from a large, professionally
+# /usr/share/pixmaps/. A real .deb from a large, professionally
 # packaged application (Discord) was inspected directly and found to
 # rely on pixmaps as its *only* icon delivery mechanism, specifically
 # because it isn't backed by hicolor's own cached icon-theme.cache
-# index at all: a bare Icon=$BUNDLE_ID reference in the .desktop file
-# above resolves through hicolor first when that succeeds, falling
-# back to pixmaps -- a plain, uncached file lookup -- when it
+# index at all -- a bare Icon=$BUNDLE_ID reference in the .desktop
+# file above resolves through hicolor first when that succeeds,
+# falling back to pixmaps -- a plain, uncached file lookup -- when it
 # doesn't. This exists alongside the scalable SVG above, not instead
 # of it, specifically to keep crisp vector rendering wherever hicolor
-# does resolve correctly, while giving Cinnamon (or any other desktop
-# environment) a cache-independent fallback for the moments it
-# doesn't -- namely, right after a fresh install or upgrade, before
-# whatever is keeping hicolor's own cache from refreshing promptly in
-# practice gets sorted out. 256px chosen to match Discord's own real,
-# shipped size for the same purpose.
+# does resolve correctly (confirmed directly: the taskbar icon, which
+# goes through this same hicolor lookup, already renders correctly
+# from the SVG on a fresh install), while giving Cinnamon's menu
+# applet specifically a cache-independent fallback for the one case
+# confirmed NOT to resolve promptly there -- a genuinely fresh
+# install, before that app has ever been seen by Cinnamon's own
+# already-running app-system object. Two different postinst-side
+# fixes aimed at that gap (see the comment above, near the .desktop
+# GAppInfoMonitor discussion) were tried and confirmed, on real
+# installs, not to close it -- this sidesteps it instead of depending
+# on it. 256px chosen to match Discord's own real, shipped size for
+# the same purpose.
 rsvg-convert -w 256 -h 256 "$ICON_SRC" -o "$PKGROOT/usr/share/pixmaps/$BUNDLE_ID.png"
 
 # -- permissions ------------------------------------------------
