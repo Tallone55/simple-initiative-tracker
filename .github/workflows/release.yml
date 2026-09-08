@@ -124,19 +124,26 @@ jobs:
             mingw-w64-x86_64-adwaita-icon-theme
             mingw-w64-x86_64-python-pip
             mingw-w64-x86_64-librsvg
+            mingw-w64-x86_64-python-pillow
             zip
-          # This job builds with packaging/build_windows.sh, confirmed
-          # functional on a real GitHub Actions Windows runner using
-          # exactly this install list -- see that script's own header
-          # comment for what it took to get there. This list includes
-          # mingw-w64-x86_64-librsvg specifically for icon generation,
-          # and confirms this MSYS2 setup does NOT need an equivalent
-          # to gir1.2-girepository-3.0 (the Linux job's own "Install
-          # GTK4 + PyGObject build dependencies" step needs that one
-          # explicitly; Windows evidently doesn't hit the same gap).
+          # This job builds with packaging/build_windows.sh. The base
+          # build (GTK4/PyGObject, the MSYS2-path fix, GIRepository-3.0
+          # not being needed here) is confirmed functional on a real
+          # GitHub Actions Windows runner. Pillow moved into this list
+          # from a separate `pip install` step after that pip install
+          # was confirmed, on a real run, to fail outright: PyPI has no
+          # prebuilt wheel matching MSYS2's own Python ABI, so pip
+          # fell back to building Pillow from source, which then
+          # failed for want of its own native build toolchain --
+          # `running build_clib ... [WinError 2] The system cannot
+          # find the file specified`. See build_windows.sh's own
+          # header comment for the full reasoning. This particular
+          # fix has not itself been through a real Windows run yet --
+          # treat the next one as the actual verification, same as
+          # every other Windows-specific change in this script.
 
       - name: Install PyInstaller
-        run: python -m pip install pyinstaller Pillow
+        run: python -m pip install pyinstaller
 
       - name: Decode Authenticode certificate
         if: ${{ env.SIT_WINDOWS_CERT_BASE64 != '' }}

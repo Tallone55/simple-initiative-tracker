@@ -29,8 +29,25 @@
 #     pacman -S --needed mingw-w64-x86_64-gtk4 \
 #         mingw-w64-x86_64-python mingw-w64-x86_64-python-gobject \
 #         mingw-w64-x86_64-python-cairo mingw-w64-x86_64-adwaita-icon-theme \
-#         mingw-w64-x86_64-python-pip mingw-w64-x86_64-librsvg
-#     python -m pip install pyinstaller Pillow
+#         mingw-w64-x86_64-python-pip mingw-w64-x86_64-librsvg \
+#         mingw-w64-x86_64-python-pillow
+#     python -m pip install pyinstaller
+#
+# Pillow specifically needs to come from pacman, not pip: PyPI only
+# ships prebuilt wheels for the official python.org CPython Windows
+# builds, and MSYS2's own Python has a different ABI those wheels
+# don't match, so pip falls back to building Pillow from source --
+# which then fails outright, since that source build needs its own
+# native toolchain/build dependencies (libjpeg, zlib, freetype, and
+# so on) that a bare `pip install` has no way to provide. Confirmed
+# directly on a real Windows CI run: `pip install Pillow` here fails
+# with "running build_clib ... [WinError 2] The system cannot find
+# the file specified". PyInstaller itself is pure Python with no
+# compiled extensions, so it doesn't hit this and installs fine via
+# pip -- same reasoning as why python-gobject/python-cairo above are
+# already pacman packages rather than pip ones: any package with its
+# own native/C-extension component needs MSYS2's own prebuilt binary
+# on this platform, not a generic PyPI wheel.
 #
 # Run from anywhere:
 #     ./packaging/build_windows.sh
@@ -68,13 +85,19 @@ if ! python -c "import PyInstaller" >/dev/null 2>&1; then
     echo "Error: PyInstaller not importable -- run 'python -m pip install pyinstaller' first (see this script's own header comment)." >&2
     exit 1
 fi
+if ! python -c "import PIL" >/dev/null 2>&1; then
+    echo "Error: Pillow not importable -- run 'pacman -S mingw-w64-x86_64-python-pillow' first (see this script's own header comment for why this needs to come from pacman, not pip)." >&2
+    exit 1
+fi
 # Same check as the verified Linux script, same reasoning (see header
-# comment) -- unconfirmed here whether MSYS2's own PyGObject build
-# hits this at all, but if it does, this catches it with a clear
-# message rather than the opaque AttributeError PyInstaller itself
-# produces without it.
+# comment). Confirmed on a real Windows CI run that MSYS2's own
+# PyGObject build does NOT hit this gap -- the app launches and runs
+# correctly with no icon-related crash -- so this check is not
+# currently expected to fail here, but is kept as a fast, clear
+# failure mode rather than PyInstaller's own opaque AttributeError, in
+# case that ever changes with a future MSYS2/PyGObject update.
 if ! python -c "import gi; gi.require_version('GIRepository', '3.0'); from gi.repository import GIRepository" >/dev/null 2>&1; then
-    echo "Error: GIRepository 3.0 typelib not found. If this is the same gap found on Linux (PyGObject >= 3.52 linking against libgirepository-2.0, which has no typelib of its own), look for whatever MSYS2 package provides GIRepository-3.0's introspection data -- unconfirmed here which one that is, or whether it exists at all in MSYS2's repos yet." >&2
+    echo "Error: GIRepository 3.0 typelib not found. If this is the same gap found on Linux (PyGObject >= 3.52 linking against libgirepository-2.0, which has no typelib of its own), look for whatever MSYS2 package provides GIRepository-3.0's introspection data." >&2
     exit 1
 fi
 
@@ -99,7 +122,10 @@ _stamp_app_metadata "$STAGE_DIR/bin/app_metadata.py"
 #    icon size set -- Explorer, the taskbar, and Alt-Tab each prefer a
 #    different one of these, so shipping only one size makes some of
 #    them look soft or blurry even once an icon shows up at all) via
-#    Pillow, which every PyInstaller install already needs anyway.
+#    Pillow specifically for the multi-size packing step below (not
+#    something PyInstaller itself needs -- see the one-time setup
+#    note above for why it has to come from pacman here, unlike
+#    PyInstaller itself).
 #    Previously left as a commented-out, never-actually-run manual
 #    step -- confirmed directly that this produces exactly the
 #    symptom you'd expect from an .exe with no icon resource embedded
