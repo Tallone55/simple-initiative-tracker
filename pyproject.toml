@@ -1,6 +1,6 @@
 [project]
 name = "simple-initiative-tracker"
-version = "1.0.0rc17"
+version = "1.0.0rc18"
 description = "A lightweight GTK4 combat initiative tracker for tabletop games."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -11,6 +11,11 @@ authors = [
 dependencies = [
     "meson>=1.11.2",
     "pygobject>=3.56.3",
+]
+
+[project.optional-dependencies]
+build = [
+    "pyinstaller>=6.22",
 ]
 
 [project.urls]

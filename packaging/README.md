@@ -2,7 +2,7 @@
 
 Builds Simple Initiative Tracker into all four of its distribution
 formats: a Debian package (`.deb`), a portable Linux bundle
-(`.tar.gz`), a portable Windows build (`.exe`), and a macOS app
+(`.tar.gz`), a portable Windows build (`.zip`), and a macOS app
 bundle (`.app`).
 
 ## Layout
@@ -12,21 +12,12 @@ packaging/
   common/
     app_metadata.sh      -- packaging-only identity constants (display name, launcher command, bundle id)
     project_metadata.sh  -- reads $VERSION/$PKG_NAME/$DESCRIPTION/$MAINTAINER from pyproject.toml (single source of truth)
-    list_needed_stdlib.py -- traces this app's own imports to find exactly which stdlib modules to bundle
     signing.sh            -- optional GPG/Authenticode/Developer ID signing, gated on credential env vars
   net.mystive.sit.svg    -- app icon, shared by all four build scripts
-  linux/
-    collect_shared_libs.py  -- ldd-based .so dependency closure walker
-  windows/
-    collect_dlls.py      -- objdump-based .dll dependency closure walker
-    launcher.c            -- native launcher stub, compiled at build time
-  macos/
-    collect_dylibs.py    -- otool-based .dylib dependency closure walker + @rpath rewriting
-    Info.plist.in         -- Info.plist template
 
   build_deb.sh            -- .deb          (Linux, run anywhere with dpkg-deb)
   build_linux_portable.sh -- .tar.gz       (Linux, run on the target arch)
-  build_windows.sh        -- .exe          (Windows, MSYS2 MINGW64 shell only)
+  build_windows.sh        -- .zip          (Windows, MSYS2 MINGW64 shell only)
   build_macos.sh          -- .app          (macOS only)
   build_all.sh             -- runs whichever of the above are possible on this machine
 
@@ -42,7 +33,7 @@ packaging/
 
 This builds whatever your current machine can natively build, and
 tells you plainly what it couldn't. **No single machine can build all
-four** -- a real Windows `.exe` needs an actual Windows/MSYS2
+four** -- a real Windows build needs an actual Windows/MSYS2
 toolchain, a real macOS `.app` needs actual macOS, and there's no
 reliable way to cross-compile a GTK4 + GObject Introspection +
 PyGObject application for a different OS than the one doing the
@@ -78,25 +69,25 @@ resolve their own paths relative to the script's own location):
 ```
 
 Each prints its own prerequisites and exact output path when it runs
-(and `build_deb.sh`, `build_linux_portable.sh` docstrings/comments
-have the full detail on what gets bundled and why).
+(and each script's own header comment has the full detail on what
+gets bundled and why, including the one-time OS package it needs
+beyond the project's own `uv sync --extra build` -- see "The
+GIRepository-3.0 gap" below before running any of them for the first
+time).
 
 ## Design notes
 
 **Version, package name, description, and maintainer are all
 single-sourced.** Every script reads them from `pyproject.toml` via
 `common/project_metadata.sh` -- nothing hand-maintains a second copy
-that can drift (this replaced an earlier setup where a standalone
-`debian/control` file's own `Version:`/`Maintainer:` fields could go
-stale against `pyproject.toml`, and where the app icon lived only
-under `debian/` despite every build script needing it).
+that can drift.
 
 **Signing is optional and credential-gated, never fabricated.**
 `common/signing.sh` provides GPG signing (`.deb`/`.tar.gz`), Windows
-Authenticode (`.exe`), and macOS Developer ID codesigning +
-notarization (`.app`), but every one of them only activates when its
-own credential is present as an environment variable, and skips with
-a clear message otherwise -- a GPG keypair, a Windows code-signing
+Authenticode, and macOS Developer ID codesigning + notarization
+(`.app`), but every one of them only activates when its own
+credential is present as an environment variable, and skips with a
+clear message otherwise -- a GPG keypair, a Windows code-signing
 certificate, and an Apple Developer ID are all things a human has to
 obtain and supply (the latter two specifically require a paid CA
 purchase or Apple Developer Program enrollment), not something a
@@ -104,36 +95,77 @@ build script can generate on its own. See the credential list at the
 top of `.github/workflows/release.yml` for the exact secret names
 each mechanism needs.
 
-**The two portable builds (Linux, and in spirit Windows/macOS too)
-don't use PyInstaller.** They each walk the real shared-library
-dependency graph from scratch (`ldd`/`objdump`/`otool` respectively)
-with an explicit, documented denylist for what must come from the
-host (glibc and the graphics/display stack on Linux; the core
-Windows DLL family; macOS's own system frameworks) versus what
-travels in the bundle (GTK4, GLib, Pango, cairo, HarfBuzz, gdk-pixbuf,
-and their own dependencies). This is more transparent than a
-PyInstaller onefile build and avoids PyInstaller's rougher handling of
-GObject Introspection typelibs on Linux/macOS. Windows uses PyInstaller-adjacent
-tooling only for the final single-.exe packaging step (7-Zip SFX), not
-for dependency discovery.
+**The three non-.deb builds use PyInstaller.** Each script's own
+`Analysis(...)`/`hooksconfig` is written directly in the shell script
+that generates the `.spec` file, rather than hand-tracing the shared
+library and stdlib dependency graph. This replaced an earlier,
+hand-rolled dependency-closure walker (`ldd`/`objdump`/`otool`-based,
+plus a runtime-exercise-based stdlib tracer) that produced somewhat
+smaller bundles but needed a hand-maintained test harness to catch
+lazy stdlib imports -- coverage that was only as good as what the
+harness actually exercised, and failed silently (not with a build
+warning) whenever a new code path went un-exercised. PyInstaller's own
+static bytecode analysis finds these without needing a matching
+harness to grow alongside the app, at the cost of a larger bundle
+(roughly 140MB vs. roughly 50MB on Linux, measured directly) since its
+bootloader `dlopen()`s libpython at runtime rather than shipping a
+self-contained interpreter binary the way the previous approach did.
+
+### The GIRepository-3.0 gap
+
+PyGObject >= 3.52 links its own C extension against
+`libgirepository-2.0`, which -- unlike the library it replaced -- has
+no separate, introspectable `GIRepository` typelib of its own at all;
+that functionality is native to the C library itself. PyInstaller's
+own GTK4/`gi` hook still needs to introspect *something* named
+`GIRepository` to discover what to collect, and specifically expects
+one named `GIRepository` version `3.0` for this newer architecture
+(see `PyInstaller/utils/hooks/gi.py`'s own `new_api` branch in an
+installed PyInstaller). On Debian/Ubuntu, that introspection data
+ships as a separate, not-installed-by-default package:
+
+```sh
+sudo apt-get install -y gir1.2-girepository-3.0
+```
+
+Confirmed directly on Linux: without it, the portable build produces
+zero `.typelib` files at all, and the resulting app crashes on
+startup with `AttributeError: 'gi.repository.GObject' object has no
+attribute 'Property'` -- an error that doesn't point at the missing
+package at all, which is why this is called out explicitly here and
+in every build script's own header comment. Each script also runs a
+pre-flight check for this and fails with a clear message pointing
+back to this explanation, rather than letting PyInstaller fail
+opaquely partway through a build.
+
+Whether Homebrew's or MSYS2's own PyGObject builds hit the same gap,
+and whether an equivalent package exists for either, is **not
+confirmed** -- see the next section.
 
 **Verified for real, on this machine, where the tooling allows it:**
 `build_deb.sh` and `build_linux_portable.sh` are both Linux-native and
 were actually run end-to-end -- the `.deb` was installed with `dpkg
 -i` and confirmed to launch; the portable `.tar.gz` was extracted to
-an unrelated directory and run with `LD_LIBRARY_PATH`, `PYTHONPATH`,
-`GI_TYPELIB_PATH`, and any venv entirely stripped from the
-environment, confirming it doesn't quietly depend on anything from
-the machine it was built on. GPG signing was verified the same way --
-a real test keypair, a real signature, and a real `gpg --verify`
-confirming it -- and confirmed to degrade cleanly (build succeeds,
-just unsigned) with no key configured, which is the default state for
-anyone who clones this repo without setting up the secrets above.
-`windows/launcher.c` was cross-compiled with `mingw-w64-gcc` and
-confirmed to produce a valid PE32+ executable. `build_windows.sh`,
-`build_macos.sh`, their Authenticode/Developer ID signing paths, and
-the CI workflow's Windows/macOS jobs are believed correct from
-careful review of the real toolchains involved, but haven't been run
-on actual Windows or macOS hardware, or with real certificates --
-treat their first real run as the final verification step, not this
-document.
+an unrelated directory and run with a real Cinnamon-theme exercise, a
+CSV file-argument launch, and its About-dialog icon all confirmed
+working, with `LD_LIBRARY_PATH`, `PYTHONPATH`, `GI_TYPELIB_PATH`, and
+any venv entirely stripped from the environment, confirming it
+doesn't quietly depend on anything from the machine it was built on.
+GPG signing was verified the same way -- a real test keypair, a real
+signature, and a real `gpg --verify` confirming it -- and confirmed to
+degrade cleanly (build succeeds, just unsigned) with no key
+configured, which is the default state for anyone who clones this
+repo without setting up the secrets above.
+
+`build_windows.sh` and `build_macos.sh` are **UNTESTED** -- each says
+so plainly in its own header comment. They were written by adapting
+the verified Linux script to each platform's own conventions and
+PyInstaller's own documented `BUNDLE()`/`EXE()` support, but no
+Windows or macOS machine was available to actually build or launch
+either one. In particular, the GIRepository-3.0 gap above was
+diagnosed and fixed on Linux specifically; whether it reproduces on
+Homebrew/MSYS2's own PyGObject builds, and whether an equivalent
+introspection-data package exists for either, is unconfirmed. Treat
+the first real run of either script, on real hardware, as the actual
+verification step -- not this document, and not the CI workflow's own
+best-guess dependency lists for those two jobs.

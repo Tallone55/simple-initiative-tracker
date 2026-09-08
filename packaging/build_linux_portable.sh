@@ -1,22 +1,56 @@
 #!/usr/bin/env bash
 # Builds a self-contained, "run in place" Linux bundle for Simple
-# Initiative Tracker -- extract the .tar.gz anywhere and run the
-# launcher directly, no installation step.
+# Initiative Tracker using PyInstaller -- extract the .tar.gz
+# anywhere and run the launcher directly, no installation step.
 #
 # Must be run on a Linux machine with the app's runtime dependencies
-# already available (e.g. via `uv sync`) -- this script copies that
-# working runtime into a portable form, not build it from scratch.
+# already available (e.g. via `uv sync --extra build`) -- this
+# script bundles that working runtime, not build it from scratch.
+#
+# One-time setup, beyond the project's own `uv sync --extra build`:
+#     sudo apt-get install -y gir1.2-girepository-3.0
+# PyGObject >= 3.52 switched its own C extension from linking against
+# libgirepository-1.0 to libgirepository-2.0, which has no separate,
+# introspectable "GIRepository" typelib of its own at all -- its
+# functionality is native to the C library. PyInstaller's own GTK4/gi
+# hook still needs to introspect *something* named "GIRepository" to
+# discover what to collect, and specifically expects one named
+# "GIRepository" version "3.0" for this newer architecture (see
+# PyInstaller/utils/hooks/gi.py's own "new_api" branch) -- which is
+# what gir1.2-girepository-3.0 provides. Confirmed directly: without
+# it, the build produces zero .typelib files at all and the app
+# crashes on startup with AttributeError: 'gi.repository.GObject'
+# object has no attribute 'Property', not a clearer error pointing at
+# the missing package.
 #
 # Run from anywhere:
 #     ./packaging/build_linux_portable.sh
 #
 # Output: packaging/dist/<package-name>-<version>-linux-x86_64.tar.gz
 #
-# Portability boundary: everything the app needs travels in
-# runtime/ (Python, GTK4, GLib, Pango, cairo, HarfBuzz, gdk-pixbuf,
-# and their dependencies) EXCEPT glibc, the graphics stack, and
-# X11/Wayland client libraries, which come from the host. Font
-# rendering relies on the host's fontconfig/installed fonts.
+# Portability boundary: everything PyInstaller's own GTK4/gi hook
+# collects (GTK4, GLib, Pango, cairo, HarfBuzz, gdk-pixbuf, and their
+# dependencies, plus a minimal icon/theme/locale subset -- see the
+# hooksconfig in the generated .spec) travels in the bundle, EXCEPT
+# glibc, the graphics stack, and X11/Wayland client libraries, which
+# come from the host. Font rendering relies on the host's own
+# fontconfig/installed fonts.
+#
+# This replaced an earlier, hand-rolled dependency-closure walker
+# (manually tracing which shared libraries and stdlib modules the app
+# needed, including a runtime-exercise-based tracer for catching
+# stdlib lazy imports) that produced a smaller bundle -- roughly 50MB
+# vs. this one's roughly 140MB, since PyInstaller's own bootloader
+# dlopen()s libpython at runtime rather than being a self-contained
+# interpreter binary, and its static bytecode-level dependency
+# analysis is deliberately more conservative than runtime-exercise
+# tracing would be. Traded that size for not needing a hand-maintained
+# exercise harness to stay accurate as the app grows: the earlier
+# tracer's own coverage was only as good as what it actually drove
+# the app through, silently and without warning whenever a new code
+# path went unexercised -- that maintenance burden, not a bug in the
+# tracer itself, is what motivated moving off of it in favor of
+# PyInstaller's own static analysis, which needs no matching harness.
 
 set -euo pipefail
 
@@ -30,225 +64,121 @@ source "$COMMON_DIR/signing.sh"
 
 ARCH="$(uname -m)"
 BUNDLE_NAME="${PKG_NAME}-${VERSION}-linux-${ARCH}"
-
 BUILD_DIR="$SCRIPT_DIR/build/linux-portable"
-STAGE_DIR="$BUILD_DIR/$BUNDLE_NAME"
 DIST_DIR="$SCRIPT_DIR/dist"
-TARBALL="$DIST_DIR/${BUNDLE_NAME}.tar.gz"
+STAGE_DIR="$BUILD_DIR/stage"
+TARBALL="$DIST_DIR/$BUNDLE_NAME.tar.gz"
 
-# -- locate the runtime to bundle ------------------------------------------------
+rm -rf "$BUILD_DIR"
+mkdir -p "$STAGE_DIR/bin" "$DIST_DIR"
 
-PYTHON_INTERPRETER="$(cd "$PROJECT_ROOT" && uv run python -c 'import sys; print(sys.base_prefix)')"
-VENV_SITE_PACKAGES="$(cd "$PROJECT_ROOT" && uv run python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
-PYTHON_VERSION="$(cd "$PROJECT_ROOT" && uv run python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-
-if [ ! -d "$PYTHON_INTERPRETER" ]; then
-    echo "Error: could not resolve the portable Python interpreter's base_prefix ($PYTHON_INTERPRETER)." >&2
+if ! command -v uv >/dev/null 2>&1; then
+    echo "Error: uv not found -- install it from https://docs.astral.sh/uv/ first." >&2
+    exit 1
+fi
+cd "$PROJECT_ROOT"
+# Every Python invocation below goes through `uv run` rather than a
+# bare `python3`, specifically so this script works the same way run
+# fresh (as its own header instructs -- "run from anywhere") as it
+# does with the venv already active: `uv run` always resolves to this
+# project's own .venv regardless of what's on PATH or already
+# activated in the calling shell, where a bare `python3` would
+# silently fall through to the system interpreter -- which has no
+# reason to have PyInstaller installed, and, if it happens to have
+# its own separate PyGObject, may not exhibit the GIRepository-3.0 gap
+# checked for below the same way this project's own does, checking
+# gi's own version instead of a straightforwardly missing import.
+if ! uv run --extra build python3 -c "import PyInstaller" >/dev/null 2>&1; then
+    echo "Error: PyInstaller not importable -- run 'uv sync --extra build' first." >&2
+    exit 1
+fi
+if ! uv run --extra build python3 -c "import gi; gi.require_version('GIRepository', '3.0'); from gi.repository import GIRepository" >/dev/null 2>&1; then
+    echo "Error: GIRepository 3.0 typelib not found -- is gir1.2-girepository-3.0 installed? (see this script's own header comment for why this specific package is needed)" >&2
     exit 1
 fi
 
-echo "Building ${APP_NAME} ${VERSION} (Linux portable, $ARCH)..."
-echo "  Python runtime:  $PYTHON_INTERPRETER"
-echo "  site-packages:   $VENV_SITE_PACKAGES"
-
-rm -rf "$STAGE_DIR"
-mkdir -p \
-    "$STAGE_DIR/bin" \
-    "$STAGE_DIR/ui" \
-    "$STAGE_DIR/runtime/lib/girepository-1.0" \
-    "$STAGE_DIR/runtime/lib/gdk-pixbuf-2.0/loaders" \
-    "$STAGE_DIR/runtime/share/glib-2.0/schemas" \
-    "$STAGE_DIR/runtime/share/icons/hicolor/scalable/apps" \
-    "$DIST_DIR"
-
-# -- application source ------------------------------------------------
+# -- stamped app source ---------------------------------------------
 
 cp "$PROJECT_ROOT"/bin/*.py "$STAGE_DIR/bin/"
 _stamp_app_metadata "$STAGE_DIR/bin/app_metadata.py"
-cp "$PROJECT_ROOT"/ui/*.ui "$STAGE_DIR/ui/"
-cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$STAGE_DIR/ui/"
 
-# -- portable Python interpreter ------------------------------------------------
+# -- PyInstaller spec -------------------------------------------------
 
-# Built up explicitly from proven-needed pieces, rather than copying
-# the whole interpreter prefix and pruning specific things out
-# afterward (bin/'s other executables -- pip, idle, pydoc,
-# python3.14-config; include/; share/; Tcl/Tk's native libraries;
-# the unused libpythonX.Y.so.1.0 -- all had to be discovered and
-# removed by hand in earlier passes at this, one at a time, which is
-# exactly the same architectural problem this replaces on Windows.
-# Nothing here is copied speculatively:
-#   - bin/python$PYTHON_VERSION is the one executable the launcher
-#     script actually runs; confirmed directly (ldd) its own only
-#     dependencies are the standard glibc family already covered by
-#     collect_shared_libs.py's own denylist as host-provided -- so
-#     it's also seeded into that same closure walk below, the same
-#     validate-before-bundling mechanism already used for the GTK
-#     stack, rather than asserted once and left unverified against
-#     a future Python version that might need something new.
-#   - lib/python$PYTHON_VERSION/ is the traced stdlib (unchanged
-#     from before): import every one of this app's own bin/*.py
-#     files and record what actually lands in sys.modules, then copy
-#     only that -- the same dependency-tracing technique packagers
-#     like PyInstaller use internally (see list_needed_stdlib.py's
-#     own docstring).
-#   - site-packages holds only gi/cairo and their dist-info, same as
-#     before.
-mkdir -p "$STAGE_DIR/runtime/python/bin"
-cp -a "$PYTHON_INTERPRETER/bin/python$PYTHON_VERSION" "$STAGE_DIR/runtime/python/bin/"
+SPEC_FILE="$BUILD_DIR/sit.spec"
+cat > "$SPEC_FILE" << SPECEOF
+# -*- mode: python ; coding: utf-8 -*-
 
-BUNDLED_STDLIB="$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION"
-mkdir -p "$BUNDLED_STDLIB"
-NEEDED_STDLIB_NAMES="$(uv run --project "$PROJECT_ROOT" python "$COMMON_DIR/list_needed_stdlib.py" "$PROJECT_ROOT/bin")"
-if [ -z "$NEEDED_STDLIB_NAMES" ]; then
-    echo "Error: list_needed_stdlib.py produced no output -- the trace itself failed." >&2
-    exit 1
-fi
-while IFS= read -r name; do
-    name="${name%$'\r'}"
-    [ -z "$name" ] && continue
-    src="$PYTHON_INTERPRETER/lib/python$PYTHON_VERSION/$name"
-    if [ ! -e "$src" ]; then
-        echo "Warning: traced stdlib name '$name' not found at $src -- skipping." >&2
-        continue
-    fi
-    cp -a "$src" "$BUNDLED_STDLIB/"
-done <<< "$NEEDED_STDLIB_NAMES"
-find "$BUNDLED_STDLIB" -name '__pycache__' -type d -prune -exec rm -rf {} +
-
-mkdir -p "$BUNDLED_STDLIB/site-packages"
-for pkg in gi cairo; do
-    cp -a "$VENV_SITE_PACKAGES/$pkg" "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/site-packages/"
-done
-for dist_info in "$VENV_SITE_PACKAGES"/pygobject-*.dist-info "$VENV_SITE_PACKAGES"/pycairo-*.dist-info; do
-    cp -a "$dist_info" "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/site-packages/"
-done
-
-# -- GTK4/GLib/etc. shared library closure ------------------------------------------------
-
-GTK_LIB="$(ldconfig -p | awk '/libgtk-4\.so\.1 /{print $NF; exit}')"
-GI_EXT="$(find "$VENV_SITE_PACKAGES/gi" -maxdepth 1 -name '_gi.cpython*.so' | head -1)"
-GI_CAIRO_EXT="$(find "$VENV_SITE_PACKAGES/gi" -maxdepth 1 -name '_gi_cairo.cpython*.so' | head -1)"
-PYCAIRO_EXT="$(find "$VENV_SITE_PACKAGES/cairo" -maxdepth 1 -name '_cairo.cpython*.so' | head -1)"
-PIXBUF_QUERY_LOADERS="$(command -v gdk-pixbuf-query-loaders || find /usr/lib -name gdk-pixbuf-query-loaders | head -1)"
-
-if [ -z "$GTK_LIB" ]; then
-    echo "Error: libgtk-4.so.1 not found via ldconfig -- is GTK4 installed on this build machine?" >&2
-    exit 1
-fi
-if [ -z "$GI_EXT" ]; then
-    echo "Error: PyGObject's _gi extension module not found under $VENV_SITE_PACKAGES/gi -- is pygobject installed in this project's venv?" >&2
-    exit 1
-fi
-if [ -z "$GI_CAIRO_EXT" ]; then
-    echo "Error: PyGObject's _gi_cairo extension module not found under $VENV_SITE_PACKAGES/gi -- is pygobject's cairo integration installed?" >&2
-    exit 1
-fi
-if [ -z "$PYCAIRO_EXT" ]; then
-    echo "Error: pycairo's _cairo extension module not found under $VENV_SITE_PACKAGES/cairo -- is pycairo installed in this project's venv?" >&2
-    exit 1
-fi
-if [ -z "$PIXBUF_QUERY_LOADERS" ]; then
-    echo "Error: gdk-pixbuf-query-loaders not found on PATH or under /usr/lib -- is gdk-pixbuf installed on this build machine?" >&2
-    exit 1
-fi
-
-# libadwaita is deliberately not bundled: nothing in this app's own
-# code imports Adw or uses an Adw* widget class (confirmed directly --
-# no gi.repository import, no .ui file referencing one), so it isn't
-# a real runtime dependency, just a leftover from an earlier version
-# of the app that never got cleaned up here. adwaita-icon-theme is a
-# separate, still-needed package (the icon set itself, unrelated to
-# the Adw widget library) and isn't affected by this.
-SEEDS=("$GTK_LIB")
-
-# gdk-pixbuf loaders are dlopen()'d plugins, not link-time
-# dependencies, so their own deps need walking explicitly too --
-# walk-only, not regular seeds, since the loader files and the
-# gdk-pixbuf-query-loaders binary are already copied to their own
-# gdk-pixbuf-2.0/ subdirectory below, not this flat output (a regular
-# seed is copied into this flat output too, which produced a real,
-# measured duplicate here: confirmed directly, every loader file
-# ending up both in runtime/lib/ -- unused, nothing loads them from
-# there -- and in the correct runtime/lib/gdk-pixbuf-2.0/loaders/).
-# The same applies to the gi/cairo extension modules and the Python
-# interpreter binary itself: each is already copied to its own
-# specific destination elsewhere in this script (the extensions as
-# part of the whole gi/cairo package copy above, the interpreter to
-# runtime/python/bin/), so they're seeded here only to validate and
-# walk *their* dependencies, not to be re-copied into this flat
-# output a second time.
-GDK_PIXBUF_LOADER="$(find /usr/lib -name 'libpixbufloader-*.so' | head -1)"
-if [ -z "$GDK_PIXBUF_LOADER" ]; then
-    echo "Error: no gdk-pixbuf loader .so files found under /usr/lib -- is gdk-pixbuf installed on this build machine?" >&2
-    exit 1
-fi
-GDK_PIXBUF_LOADER_DIR="$(dirname "$GDK_PIXBUF_LOADER")"
-WALK_ONLY_ARGS=(
-    "--walk-only" "$GI_EXT"
-    "--walk-only" "$GI_CAIRO_EXT"
-    "--walk-only" "$PYCAIRO_EXT"
-    "--walk-only" "$PYTHON_INTERPRETER/bin/python$PYTHON_VERSION"
-    "--walk-only" "$PIXBUF_QUERY_LOADERS"
+a = Analysis(
+    ["$STAGE_DIR/bin/sit.py"],
+    pathex=[],
+    binaries=[],
+    datas=[("$PROJECT_ROOT/ui", "ui")],
+    hiddenimports=[],
+    hookspath=[],
+    hooksconfig={
+        "gi": {
+            "module-versions": {
+                "Gtk": "4.0",
+                "Gdk": "4.0",
+            },
+            "icons": ["Adwaita", "hicolor"],
+            "themes": ["Adwaita"],
+            "languages": ["en"],
+        },
+    },
+    excludes=[],
+    runtime_hooks=[],
+    noarchive=False,
+    optimize=0,
 )
-for loader in "$GDK_PIXBUF_LOADER_DIR"/*.so; do
-    WALK_ONLY_ARGS+=("--walk-only" "$loader")
-done
+pyz = PYZ(a.pure)
 
-python3 "$SCRIPT_DIR/linux/collect_shared_libs.py" --out "$STAGE_DIR/runtime/lib" "${WALK_ONLY_ARGS[@]}" "${SEEDS[@]}"
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="$EXECUTABLE_NAME",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="$EXECUTABLE_NAME",
+)
+SPECEOF
 
-cp "$GDK_PIXBUF_LOADER_DIR"/*.so "$STAGE_DIR/runtime/lib/gdk-pixbuf-2.0/loaders/"
-cp "$PIXBUF_QUERY_LOADERS" "$STAGE_DIR/runtime/lib/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders"
+uv run --extra build python3 -m PyInstaller \
+    --distpath "$STAGE_DIR" \
+    --workpath "$BUILD_DIR/pyinstaller-work" \
+    --noconfirm \
+    "$SPEC_FILE"
 
-# -- GObject Introspection typelibs ------------------------------------------------
+BUNDLE_DIR="$STAGE_DIR/$EXECUTABLE_NAME"
 
-GTK4_TYPELIB="$(find /usr/lib -name 'Gtk-4.0.typelib' | head -1)"
-if [ -z "$GTK4_TYPELIB" ]; then
-    echo "Error: Gtk-4.0.typelib not found under /usr/lib -- is gir1.2-gtk-4.0 installed on this build machine?" >&2
-    exit 1
-fi
-TYPELIB_DIR="$(dirname "$GTK4_TYPELIB")"
-cp "$TYPELIB_DIR"/*.typelib "$STAGE_DIR/runtime/lib/girepository-1.0/"
+# -- icon (for desktop integration on systems that pick this up from
+#    a portable extraction -- matches the icon path convention the
+#    .deb build's own desktop file references) ----------------------
 
-# -- GSettings schemas ------------------------------------------------
+mkdir -p "$BUNDLE_DIR/share/icons/hicolor/scalable/apps"
+cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$BUNDLE_DIR/share/icons/hicolor/scalable/apps/"
 
-if [ ! -f /usr/share/glib-2.0/schemas/gschemas.compiled ]; then
-    echo "Error: /usr/share/glib-2.0/schemas/gschemas.compiled not found -- is libglib2.0-bin (or similar) installed and glib-compile-schemas been run on this build machine?" >&2
-    exit 1
-fi
-cp /usr/share/glib-2.0/schemas/gschemas.compiled "$STAGE_DIR/runtime/share/glib-2.0/schemas/"
+# -- archive ----------------------------------------------------------
 
-# -- icon ------------------------------------------------
-
-cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$STAGE_DIR/runtime/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg"
-
-# -- launcher ------------------------------------------------
-
-cat > "$STAGE_DIR/$EXECUTABLE_NAME" << 'LAUNCHER'
-#!/bin/sh
-set -e
-HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-RUNTIME="$HERE/runtime"
-
-export LD_LIBRARY_PATH="$RUNTIME/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-export GI_TYPELIB_PATH="$RUNTIME/lib/girepository-1.0"
-export GSETTINGS_SCHEMA_DIR="$RUNTIME/share/glib-2.0/schemas"
-export XDG_DATA_DIRS="$RUNTIME/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
-
-# Regenerated fresh every run since the cache embeds absolute paths.
-PIXBUF_CACHE="$RUNTIME/lib/gdk-pixbuf-2.0/loaders.cache.runtime"
-"$RUNTIME/lib/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders" "$RUNTIME/lib/gdk-pixbuf-2.0/loaders/"*.so \
-    > "$PIXBUF_CACHE" 2>/dev/null || true
-export GDK_PIXBUF_MODULE_FILE="$PIXBUF_CACHE"
-
-export PYTHONHOME="$RUNTIME/python"
-PYTHON_BIN="$(ls "$RUNTIME/python/bin/python3."* 2>/dev/null | head -1)"
-exec "$PYTHON_BIN" "$HERE/bin/sit.py" "$@"
-LAUNCHER
-chmod 755 "$STAGE_DIR/$EXECUTABLE_NAME"
-
-# -- archive ------------------------------------------------
-
+mv "$BUNDLE_DIR" "$BUILD_DIR/$BUNDLE_NAME"
 tar -C "$BUILD_DIR" -czf "$TARBALL" "$BUNDLE_NAME"
 sign_file_gpg "$TARBALL"
 

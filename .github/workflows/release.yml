@@ -62,7 +62,18 @@ jobs:
           sudo apt-get install -y \
             python3-gi python3-gi-cairo gir1.2-gtk-4.0 \
             libgirepository-2.0-dev libcairo2-dev pkg-config python3-dev \
-            dpkg-dev gnupg librsvg2-common
+            dpkg-dev gnupg librsvg2-common gir1.2-girepository-3.0
+          # gir1.2-girepository-3.0 is build-time only, never shipped:
+          # PyGObject >= 3.52 links against libgirepository-2.0, which
+          # has no separate introspectable "GIRepository" typelib of
+          # its own -- PyInstaller's own GTK4/gi hook still needs to
+          # introspect one named "GIRepository" version "3.0" to
+          # discover what to collect for this newer architecture (see
+          # packaging/build_linux_portable.sh's own header
+          # comment). Confirmed directly: without it, the portable
+          # build produces zero .typelib files and the app crashes on
+          # startup with an unrelated-looking AttributeError, not a
+          # clear error pointing at the missing package.
 
       - name: Import GPG signing key
         if: ${{ env.SIT_GPG_PRIVATE_KEY != '' }}
@@ -72,7 +83,7 @@ jobs:
         uses: astral-sh/setup-uv@v10.0.1
 
       - name: Sync project environment
-        run: uv sync
+        run: uv sync --extra build
 
       - name: Build .deb
         run: ./packaging/build_deb.sh
@@ -111,9 +122,25 @@ jobs:
             mingw-w64-x86_64-python-gobject
             mingw-w64-x86_64-python-cairo
             mingw-w64-x86_64-adwaita-icon-theme
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-7zip
+            mingw-w64-x86_64-python-pip
             zip
+          # NOTE: this job builds with packaging/build_windows.sh,
+          # which is UNTESTED on real Windows -- see that script's own
+          # header comment. This install list is a best guess at
+          # translating the verified Linux dependencies (see the
+          # Linux job's own "Install GTK4 + PyGObject build
+          # dependencies" step) to MSYS2 package names; it has not
+          # been confirmed to include whatever MSYS2 package (if any)
+          # provides GIRepository-3.0's introspection data, which the
+          # Linux build needed explicitly (gir1.2-girepository-3.0)
+          # to get PyInstaller's own GTK4 hook working. If this job
+          # fails with "Namespace GIRepository not available" or a
+          # startup AttributeError on gi.repository.GObject, that gap
+          # is almost certainly why -- see build_windows.sh's own
+          # header for what to look for.
+
+      - name: Install PyInstaller
+        run: python -m pip install pyinstaller
 
       - name: Decode Authenticode certificate
         if: ${{ env.SIT_WINDOWS_CERT_BASE64 != '' }}
@@ -129,9 +156,10 @@ jobs:
       - uses: actions/upload-artifact@v6
         with:
           name: windows-archive
-          path: |
-            packaging/dist/*.exe
-            packaging/dist/*.zip
+          # A plain .zip of a onedir build, not a self-extracting
+          # .exe -- see build_windows.sh's own header comment for why
+          # that packaging step isn't implemented yet.
+          path: packaging/dist/*.zip
 
   macos:
     name: macOS (.app)
@@ -148,9 +176,17 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install GTK4 + PyGObject build dependencies
+        # NOTE: this job builds with packaging/build_macos.sh, which
+        # is UNTESTED on real macOS -- see that script's own header
+        # comment. In particular, it is not confirmed whether
+        # Homebrew's own PyGObject build hits the same GIRepository-3.0
+        # gap the Linux build did (see the Linux job's own "Install
+        # GTK4 + PyGObject build dependencies" step for what that
+        # was), or whether gobject-introspection already covers it.
         run: |
           brew untap aws/tap || true
           HOMEBREW_NO_AUTO_UPDATE=1 brew install gtk4 pygobject3 gobject-introspection librsvg
+          python3 -m pip install --break-system-packages pyinstaller
 
       - name: Import signing certificate
         if: ${{ env.SIT_MACOS_CERT_BASE64 != '' }}

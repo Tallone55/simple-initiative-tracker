@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
-# Builds a portable Windows .exe for Simple Initiative Tracker.
+# Builds a portable Windows .exe for Simple Initiative Tracker using
+# PyInstaller.
+#
+# ***UNTESTED*** -- written by adapting the verified Linux build
+# script (build_linux_portable.sh) to Windows's own conventions, but
+# never actually run: no Windows machine was available to build or
+# launch this on. Treat the first real run of this script, on real
+# Windows hardware, as the actual verification step -- not this
+# comment. In particular, the GIRepository-3.0 issue this script
+# works around (see below) was diagnosed and fixed on Linux
+# specifically; whether MSYS2's own PyGObject build hits the same
+# gap, and whether the same fix applies, is not confirmed here.
 #
 # MUST be run from an MSYS2 MINGW64 shell on Windows.
 #
@@ -7,285 +18,161 @@
 #     pacman -S --needed mingw-w64-x86_64-gtk4 \
 #         mingw-w64-x86_64-python mingw-w64-x86_64-python-gobject \
 #         mingw-w64-x86_64-python-cairo mingw-w64-x86_64-adwaita-icon-theme \
-#         mingw-w64-x86_64-gcc mingw-w64-x86_64-7zip
+#         mingw-w64-x86_64-python-pip
+#     python -m pip install pyinstaller
 #
 # Run from anywhere:
 #     ./packaging/build_windows.sh
 #
-# Output: packaging/dist/<package-name>-<version>-windows-x86_64.exe
-# (a self-extracting archive; falls back to a plain .zip if 7-Zip
-# isn't installed)
+# Output: packaging/dist/<package-name>-<version>-windows-x86_64/
+# (a onedir build -- unlike the earlier, hand-rolled Windows script
+# this replaced, this doesn't produce a single self-extracting .exe;
+# see the note near the bottom of this script about why)
 #
-# Portability boundary: everything the app needs travels in
-# runtime/ (Python, GTK4, GLib, Pango, cairo, HarfBuzz, gdk-pixbuf,
-# and their MSYS2-provided dependencies) EXCEPT the core Windows
-# OS/CRT DLLs -- see collect_dlls.py's denylist. Font rendering
-# relies on the host's own installed fonts.
+# This replaced an earlier, hand-rolled Windows build script that
+# compiled its own native launcher.c to start the app. PyInstaller's
+# own EXE() step produces a native Windows executable directly, so
+# this script doesn't compile or ship a separate native launcher at
+# all.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMMON_DIR="$SCRIPT_DIR/common"
-WIN_DIR="$SCRIPT_DIR/windows"
 
 source "$COMMON_DIR/app_metadata.sh"
 source "$COMMON_DIR/project_metadata.sh"
 source "$COMMON_DIR/signing.sh"
 
-if [ "${MSYSTEM:-}" != "MINGW64" ]; then
-    echo "Error: this script must be run from an MSYS2 MINGW64 shell (found MSYSTEM='${MSYSTEM:-<unset>}')." >&2
-    echo "Open 'MSYS2 MINGW64' from the Start Menu, then re-run this script from there." >&2
+if ! command -v python >/dev/null 2>&1; then
+    echo "Error: python not found -- run this from an MSYS2 MINGW64 shell with mingw-w64-x86_64-python installed." >&2
+    exit 1
+fi
+if ! python -c "import PyInstaller" >/dev/null 2>&1; then
+    echo "Error: PyInstaller not importable -- run 'python -m pip install pyinstaller' first (see this script's own header comment)." >&2
+    exit 1
+fi
+# Same check as the verified Linux script, same reasoning (see header
+# comment) -- unconfirmed here whether MSYS2's own PyGObject build
+# hits this at all, but if it does, this catches it with a clear
+# message rather than the opaque AttributeError PyInstaller itself
+# produces without it.
+if ! python -c "import gi; gi.require_version('GIRepository', '3.0'); from gi.repository import GIRepository" >/dev/null 2>&1; then
+    echo "Error: GIRepository 3.0 typelib not found. If this is the same gap found on Linux (PyGObject >= 3.52 linking against libgirepository-2.0, which has no typelib of its own), look for whatever MSYS2 package provides GIRepository-3.0's introspection data -- unconfirmed here which one that is, or whether it exists at all in MSYS2's repos yet." >&2
     exit 1
 fi
 
-MINGW_ROOT="/mingw64"
-ARCH="x86_64"
-BUNDLE_NAME="${PKG_NAME}-${VERSION}-windows-${ARCH}"
-
+BUNDLE_NAME="${PKG_NAME}-${VERSION}-windows-x86_64"
 BUILD_DIR="$SCRIPT_DIR/build/windows"
-STAGE_DIR="$BUILD_DIR/$BUNDLE_NAME"
 DIST_DIR="$SCRIPT_DIR/dist"
+STAGE_DIR="$BUILD_DIR/stage"
 
-echo "Building ${APP_NAME} ${VERSION} (Windows portable, $ARCH)..."
+rm -rf "$BUILD_DIR"
+mkdir -p "$STAGE_DIR/bin" "$DIST_DIR"
 
-rm -rf "$STAGE_DIR"
-mkdir -p \
-    "$STAGE_DIR/bin" \
-    "$STAGE_DIR/ui" \
-    "$STAGE_DIR/runtime/python" \
-    "$STAGE_DIR/runtime/lib/girepository-1.0" \
-    "$STAGE_DIR/runtime/lib/gdk-pixbuf-2.0/loaders" \
-    "$STAGE_DIR/runtime/share/glib-2.0/schemas" \
-    "$STAGE_DIR/runtime/share/icons/hicolor/scalable/apps" \
-    "$DIST_DIR"
-
-# -- application source ------------------------------------------------
+# -- stamped app source ---------------------------------------------
 
 cp "$PROJECT_ROOT"/bin/*.py "$STAGE_DIR/bin/"
 _stamp_app_metadata "$STAGE_DIR/bin/app_metadata.py"
-cp "$PROJECT_ROOT"/ui/*.ui "$STAGE_DIR/ui/"
-cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$STAGE_DIR/ui/"
 
-# -- portable Python interpreter ------------------------------------------------
-
-PYTHON_VERSION="$("$MINGW_ROOT/bin/python3" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-SITE_PACKAGES="$MINGW_ROOT/lib/python$PYTHON_VERSION/site-packages"
-
-cp -a "$MINGW_ROOT/bin"/python3*.dll "$STAGE_DIR/runtime/python/" 2>/dev/null || true
-cp -a "$MINGW_ROOT/bin/python3.exe" "$MINGW_ROOT/bin/pythonw.exe" "$STAGE_DIR/runtime/python/"
-
-# Copies only the standard-library modules/packages this app actually
-# imports, determined by running list_needed_stdlib.py against the
-# real interpreter being packaged -- rather than either selectively
-# guessing an include list by hand (which is what silently broke the
-# `collections` import before: a `*.py` glob doesn't match package
-# directories, and nobody had enumerated the true, complete list) or
-# copying the entire stdlib and guessing at an exclude list instead
-# (which trades that risk for an unbounded, unverified include set,
-# no more principled than the include-list guess it replaced). This
-# is the same dependency-tracing technique packagers like PyInstaller
-# use internally, applied directly instead of adopting the full tool
-# (which has its own known friction with PyGObject/GTK4's
-# introspection-based imports). See list_needed_stdlib.py's own
-# docstring for why dynamic import tracing is sufficient here.
-BUNDLED_STDLIB="$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION"
-mkdir -p "$BUNDLED_STDLIB"
-NEEDED_STDLIB_NAMES="$("$MINGW_ROOT/bin/python3" "$COMMON_DIR/list_needed_stdlib.py" "$PROJECT_ROOT/bin")"
-if [ -z "$NEEDED_STDLIB_NAMES" ]; then
-    echo "Error: list_needed_stdlib.py produced no output -- the trace itself failed." >&2
-    exit 1
-fi
-while IFS= read -r name; do
-    # Strips a trailing \r defensively, on top of the fix in
-    # list_needed_stdlib.py itself -- belt-and-suspenders, since this
-    # exact corruption (every single traced name silently gaining an
-    # invisible trailing \r, and therefore never matching a real
-    # path) is confirmed to have happened for a reason external to
-    # this loop's own logic, and there's no real cost to also
-    # guarding here against any other source of stray \r.
-    name="${name%$'\r'}"
-    [ -z "$name" ] && continue
-    src="$MINGW_ROOT/lib/python$PYTHON_VERSION/$name"
-    if [ ! -e "$src" ]; then
-        echo "Warning: traced stdlib name '$name' not found at $src -- skipping." >&2
-        continue
-    fi
-    cp -a "$src" "$BUNDLED_STDLIB/"
-done <<< "$NEEDED_STDLIB_NAMES"
-find "$BUNDLED_STDLIB" -name '__pycache__' -type d -prune -exec rm -rf {} +
-
-mkdir -p "$BUNDLED_STDLIB/site-packages"
-for pkg in gi cairo; do
-    cp -a "$SITE_PACKAGES/$pkg" "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/site-packages/"
-done
-for dist_info in "$SITE_PACKAGES"/pygobject-*.dist-info "$SITE_PACKAGES"/pycairo-*.dist-info; do
-    [ -d "$dist_info" ] && cp -a "$dist_info" "$STAGE_DIR/runtime/python/lib/python$PYTHON_VERSION/site-packages/"
-done
-
-# -- GTK4/GLib/etc. DLL closure ------------------------------------------------
-
-GTK_DLL="$MINGW_ROOT/bin/libgtk-4-1.dll"
-GI_EXT="$(find "$SITE_PACKAGES/gi" -maxdepth 1 -name '_gi*.pyd' ! -name '_gi_cairo*' | head -1)"
-GI_CAIRO_EXT="$(find "$SITE_PACKAGES/gi" -maxdepth 1 -name '_gi_cairo*.pyd' | head -1)"
-PYCAIRO_EXT="$(find "$SITE_PACKAGES/cairo" -maxdepth 1 -name '_cairo*.pyd' | head -1)"
-PIXBUF_QUERY_LOADERS="$MINGW_ROOT/bin/gdk-pixbuf-query-loaders.exe"
-
-if [ ! -f "$GTK_DLL" ]; then
-    echo "Error: $GTK_DLL not found -- is mingw-w64-x86_64-gtk4 installed?" >&2
-    exit 1
-fi
-if [ ! -f "$PIXBUF_QUERY_LOADERS" ]; then
-    echo "Error: $PIXBUF_QUERY_LOADERS not found -- is mingw-w64-x86_64-gdk-pixbuf2 installed?" >&2
-    exit 1
-fi
-if [ -z "$GI_EXT" ]; then
-    echo "Error: PyGObject's _gi extension module not found under $SITE_PACKAGES/gi -- is mingw-w64-x86_64-python-gobject installed?" >&2
-    exit 1
-fi
-if [ -z "$GI_CAIRO_EXT" ]; then
-    echo "Error: PyGObject's _gi_cairo extension module not found under $SITE_PACKAGES/gi -- is mingw-w64-x86_64-python-gobject's cairo integration installed?" >&2
-    exit 1
-fi
-if [ -z "$PYCAIRO_EXT" ]; then
-    echo "Error: pycairo's _cairo extension module not found under $SITE_PACKAGES/cairo -- is mingw-w64-x86_64-python-cairo installed?" >&2
-    exit 1
+# -- icon: PyInstaller's EXE() wants a Windows .ico, not the app's own
+#    .svg -- ImageMagick or a similar converter would need to be
+#    available; left as a manual step here since it's untested either
+#    way and this project doesn't otherwise depend on ImageMagick.
+#    Uncomment and adapt once verified on real Windows:
+#
+#    magick "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" -resize 256x256 "$BUILD_DIR/icon.ico"
+#
+ICO_PATH=""
+if [ -f "$BUILD_DIR/icon.ico" ]; then
+    ICO_PATH="$BUILD_DIR/icon.ico"
 fi
 
-# libadwaita is deliberately not bundled: nothing in this app's own
-# code imports Adw or uses an Adw* widget class (confirmed directly --
-# no gi.repository import, no .ui file referencing one), so it isn't
-# a real runtime dependency, just a leftover from an earlier version
-# of the app that never got cleaned up here.
-SEEDS=("$GTK_DLL")
+# -- PyInstaller spec -------------------------------------------------
 
-# PIXBUF_QUERY_LOADERS and the gi/cairo extension modules are each
-# already copied to their own specific destination elsewhere in this
-# script (the extensions as part of the whole gi/cairo site-packages
-# copy above, gdk-pixbuf-query-loaders.exe to runtime/lib/gdk-pixbuf-
-# 2.0/ directly) -- walk-only, not regular seeds, so collect_dlls.py
-# validates and walks their own imports without duplicating the files
-# themselves into runtime/lib a second time (confirmed as a real,
-# measured duplication bug for the equivalent Linux collector; fixed
-# there and applied here on the same reasoning, since the underlying
-# design is shared).
-WALK_ONLY_ARGS=(
-    "--walk-only" "$PIXBUF_QUERY_LOADERS"
-    "--walk-only" "$GI_EXT"
-    "--walk-only" "$GI_CAIRO_EXT"
-    "--walk-only" "$PYCAIRO_EXT"
+SPEC_FILE="$BUILD_DIR/sit.spec"
+cat > "$SPEC_FILE" << SPECEOF
+# -*- mode: python ; coding: utf-8 -*-
+
+a = Analysis(
+    ["$STAGE_DIR/bin/sit.py"],
+    pathex=[],
+    binaries=[],
+    datas=[("$PROJECT_ROOT/ui", "ui")],
+    hiddenimports=[],
+    hookspath=[],
+    hooksconfig={
+        "gi": {
+            "module-versions": {
+                "Gtk": "4.0",
+                "Gdk": "4.0",
+            },
+            "icons": ["Adwaita", "hicolor"],
+            "themes": ["Adwaita"],
+            "languages": ["en"],
+        },
+    },
+    excludes=[],
+    runtime_hooks=[],
+    noarchive=False,
+    optimize=0,
 )
+pyz = PYZ(a.pure)
 
-PIXBUF_LOADER="$(find "$MINGW_ROOT/lib/gdk-pixbuf-2.0" -name 'libpixbufloader-*.dll' 2>/dev/null | head -1)"
-if [ -z "$PIXBUF_LOADER" ]; then
-    echo "Error: no gdk-pixbuf loader DLLs found under $MINGW_ROOT/lib/gdk-pixbuf-2.0 -- is mingw-w64-x86_64-gdk-pixbuf2 installed?" >&2
-    exit 1
-fi
-PIXBUF_LOADER_DIR="$(dirname "$PIXBUF_LOADER")"
-for loader in "$PIXBUF_LOADER_DIR"/*.dll; do
-    WALK_ONLY_ARGS+=("--walk-only" "$loader")
-done
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="$EXECUTABLE_NAME",
+    icon="$ICO_PATH",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="$EXECUTABLE_NAME",
+)
+SPECEOF
 
-python3 "$WIN_DIR/collect_dlls.py" \
-    --out "$STAGE_DIR/runtime/lib" \
-    --search-path "$MINGW_ROOT/bin" \
-    "${WALK_ONLY_ARGS[@]}" \
-    "${SEEDS[@]}"
+python -m PyInstaller \
+    --distpath "$STAGE_DIR" \
+    --workpath "$BUILD_DIR/pyinstaller-work" \
+    --noconfirm \
+    "$SPEC_FILE"
 
-cp "$PIXBUF_LOADER_DIR"/*.dll "$STAGE_DIR/runtime/lib/gdk-pixbuf-2.0/loaders/"
-cp "$PIXBUF_QUERY_LOADERS" "$STAGE_DIR/runtime/lib/gdk-pixbuf-2.0/"
+BUNDLE_DIR="$STAGE_DIR/$EXECUTABLE_NAME"
+mv "$BUNDLE_DIR" "$BUILD_DIR/$BUNDLE_NAME"
 
-# -- GObject Introspection typelibs ------------------------------------------------
+sign_file_authenticode "$BUILD_DIR/$BUNDLE_NAME/$EXECUTABLE_NAME.exe"
 
-cp "$MINGW_ROOT/lib/girepository-1.0"/*.typelib "$STAGE_DIR/runtime/lib/girepository-1.0/"
+# The previous, hand-rolled Windows script packaged its output as a
+# single self-extracting .exe via 7-Zip SFX -- not attempted here.
+# PyInstaller's own onedir output is a folder, not a single file, and
+# turning a folder into a self-extracting archive is a packaging step
+# independent of PyInstaller itself; whatever the previous script did
+# for that step (see build_windows.sh) could likely be reused as-is
+# against this folder instead, once this is confirmed to actually
+# work on real Windows. Left as a plain, zipped folder for now.
+DIST_ZIP="$DIST_DIR/$BUNDLE_NAME.zip"
+(cd "$BUILD_DIR" && zip -qr "$DIST_ZIP" "$BUNDLE_NAME")
 
-# -- GSettings schemas ------------------------------------------------
-
-cp "$MINGW_ROOT/share/glib-2.0/schemas/gschemas.compiled" "$STAGE_DIR/runtime/share/glib-2.0/schemas/"
-
-# -- icon ------------------------------------------------
-
-cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$STAGE_DIR/runtime/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg"
-
-# -- native launcher ------------------------------------------------
-
-x86_64-w64-mingw32-gcc -municode -mwindows -O2 \
-    -o "$STAGE_DIR/${APP_NAME// /}.exe" \
-    "$WIN_DIR/launcher.c" -lshlwapi
-sign_file_authenticode "$STAGE_DIR/${APP_NAME// /}.exe"
-
-# -- archive (self-extracting .exe) ------------------------------------------------
-
-SEVEN_ZIP="$(command -v 7z || command -v 7z.exe || true)"
-# Broadened to cover the SFX module names used across different
-# 7-Zip distribution channels -- 7zS2.sfx/7zSD.sfx/7z.sfx were the
-# only three checked before, and none matched what
-# mingw-w64-x86_64-7zip actually installs in at least one real CI
-# run, despite the package itself being present (i.e. $SEVEN_ZIP
-# resolved, $SFX_MODULE didn't). Rather than guess at yet another
-# single exact name with no way to confirm it here, this also lists
-# whatever *.sfx files genuinely exist under $MINGW_ROOT when none of
-# the known names match, so a future run's own output pins down the
-# real filename (or confirms this package ships no SFX module at all,
-# in which case the .zip fallback isn't a bug to keep chasing -- it's
-# the correct output for this toolchain, and a single-.exe
-# distributable would need an SFX module obtained separately).
-SFX_MODULE="$(find "$MINGW_ROOT" \( \
-    -iname '7zs2.sfx' -o -iname '7zs2con.sfx' -o -iname '7zsd.sfx' \
-    -o -iname '7zs.sfx' -o -iname '7z.sfx' -o -iname '7zcon.sfx' \
-    \) 2>/dev/null | head -1)"
-
-OUTPUT_EXE="$DIST_DIR/${BUNDLE_NAME}-portable-installer.exe"
-rm -f "$OUTPUT_EXE"
-
-if [ -n "$SEVEN_ZIP" ] && [ -n "$SFX_MODULE" ]; then
-    ARCHIVE_7Z="$BUILD_DIR/${BUNDLE_NAME}.7z"
-    rm -f "$ARCHIVE_7Z"
-    (cd "$BUILD_DIR" && "$SEVEN_ZIP" a -mx=7 "$ARCHIVE_7Z" "$BUNDLE_NAME" >/dev/null)
-
-    # Named and titled as a "portable installer" throughout -- this is
-    # the one-time-use self-extractor downloaded from GitHub, not the
-    # actual application; distinguishing the two matters here
-    # specifically because both end up being .exe files named after
-    # the same app, and someone re-running this one after the initial
-    # extract (rather than the real app executable it unpacked)
-    # re-extracts instead of launching what they meant to.
-    SFX_CONFIG="$BUILD_DIR/sfx_config.txt"
-    cat > "$SFX_CONFIG" << SFXCONFIG
-;!@Install@!UTF-8!
-Title="${APP_NAME} -- Portable Installer"
-BeginPrompt="Extract the portable ${APP_NAME} ${VERSION} folder and launch it? (Run this once; use ${APP_NAME// /}.exe inside the extracted folder afterward.)"
-RunProgram="${BUNDLE_NAME}\\${APP_NAME// /}.exe"
-;!@InstallEnd@!
-SFXCONFIG
-
-    cat "$SFX_MODULE" "$SFX_CONFIG" "$ARCHIVE_7Z" > "$OUTPUT_EXE"
-    chmod 755 "$OUTPUT_EXE"
-    sign_file_authenticode "$OUTPUT_EXE"
-
-    echo
-    echo "Built: $OUTPUT_EXE"
-    echo "Run with:   double-click ${BUNDLE_NAME}-portable-installer.exe -- it extracts a"
-    echo "            ${BUNDLE_NAME}/ folder and launches ${APP_NAME} from it. That folder's own"
-    echo "            ${APP_NAME// /}.exe, not this installer, is what to use to run the app again later."
-else
-    echo "Warning: 7z (with a recognized SFX module) not found -- install mingw-w64-x86_64-7zip for a" >&2
-    echo "         single-.exe distributable. Falling back to a .zip of the portable folder." >&2
-    if [ -n "$SEVEN_ZIP" ]; then
-        OTHER_SFX="$(find "$MINGW_ROOT" -iname '*.sfx' 2>/dev/null)"
-        if [ -n "$OTHER_SFX" ]; then
-            echo "         7z itself was found, but none of the expected SFX module names matched." >&2
-            echo "         *.sfx files that do exist under $MINGW_ROOT:" >&2
-            echo "$OTHER_SFX" | sed 's/^/           /' >&2
-        else
-            echo "         7z itself was found, but no *.sfx file exists anywhere under $MINGW_ROOT --" >&2
-            echo "         this mingw-w64-x86_64-7zip install doesn't ship an SFX module at all." >&2
-        fi
-    fi
-    ZIP_FILE="$DIST_DIR/${BUNDLE_NAME}.zip"
-    (cd "$BUILD_DIR" && rm -f "$ZIP_FILE" && zip -rq "$ZIP_FILE" "$BUNDLE_NAME")
-
-    echo
-    echo "Built: $ZIP_FILE"
-    echo "Run with:   unzip it, then double-click ${APP_NAME// /}.exe inside ${BUNDLE_NAME}/"
-fi
+echo
+echo "Built: $DIST_ZIP"
+echo "Run with:   unzip $(basename "$DIST_ZIP") && ${BUNDLE_NAME}/${EXECUTABLE_NAME}.exe"
+echo
+echo "UNTESTED -- see this script's own header comment. Verify this actually launches before distributing it."
