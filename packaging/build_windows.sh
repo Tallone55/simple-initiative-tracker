@@ -155,6 +155,48 @@ else
     echo "Warning: rsvg-convert not found -- building without an app icon (install mingw-w64-x86_64-librsvg; see this script's own header comment). The .exe and its taskbar icon will fall back to Windows' generic default icon." >&2
 fi
 
+# -- fontconfig config --------------------------------------------------
+#
+# Modern GTK3+/GTK4 builds render text via Cairo using PangoFT2
+# (FreeType), not the legacy PangoWin32/GDI backend -- confirmed via
+# MSYS2's own mingw-w64-x86_64-pango package, which ships both
+# libpangoft2-1.0-0.dll and libpangowin32-1.0-0.dll side by side, with
+# the FreeType one being what a Cairo-based GTK actually asks for.
+# FreeType text shaping this way is driven by fontconfig, a genuinely
+# separate MSYS2 package (mingw-w64-x86_64-fontconfig) with its own
+# config file (fonts.conf) and a conf.d/ directory of config snippets
+# -- neither of which PyInstaller's own GTK4/gi hook has any built-in
+# awareness of collecting, the same way it has no awareness of GIO's
+# modules directory or GIRepository-3.0's typelib elsewhere in this
+# script: each of those needed its own explicit handling here, not
+# something PyInstaller discovered on its own.
+#
+# Without a working fonts.conf, fontconfig has no configured search
+# paths at all -- not the bundled fonts, and critically not Windows'
+# own system font directory, which the stock fonts.conf normally
+# reaches via a <dir>WINDOWSFONTDIR</dir> directive (a special
+# keyword fontconfig resolves via the Windows API itself, not a
+# hardcoded path, so it should keep working correctly regardless of
+# where this bundle itself ends up on disk). Collected below and
+# pointed at via FONTCONFIG_PATH, set in bin/sit.py itself the same
+# way XDG_DATA_DIRS is set there for the Linux build. This is the
+# best explanation available for a real report of Windows text
+# rendering with an unexpected, wrong-looking font -- not confirmed
+# against actual Windows hardware, the same caveat as everything else
+# in this script.
+FONTCONFIG_SYSCONFDIR=""
+if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists fontconfig 2>/dev/null; then
+    FONTCONFIG_SYSCONFDIR="$(pkg-config --variable=sysconfdir fontconfig 2>/dev/null || true)"
+fi
+if [ -z "$FONTCONFIG_SYSCONFDIR" ]; then
+    FONTCONFIG_SYSCONFDIR="/mingw64/etc"
+fi
+FONTCONFIG_DIR="$FONTCONFIG_SYSCONFDIR/fonts"
+if [ ! -f "$FONTCONFIG_DIR/fonts.conf" ]; then
+    echo "Warning: fonts.conf not found at $FONTCONFIG_DIR -- building without a bundled fontconfig config (install mingw-w64-x86_64-fontconfig; see this script's own header comment). Text is likely to render with the wrong font." >&2
+    FONTCONFIG_DIR=""
+fi
+
 # -- PyInstaller spec -------------------------------------------------
 #
 # Every path interpolated into the .spec file below goes through
@@ -183,6 +225,10 @@ WIN_ICO_PATH=""
 if [ -n "$ICO_PATH" ]; then
     WIN_ICO_PATH="$(cygpath -m "$ICO_PATH")"
 fi
+WIN_FONTCONFIG_DIR=""
+if [ -n "$FONTCONFIG_DIR" ]; then
+    WIN_FONTCONFIG_DIR="$(cygpath -m "$FONTCONFIG_DIR")"
+fi
 
 SPEC_FILE="$BUILD_DIR/sit.spec"
 cat > "$SPEC_FILE" << SPECEOF
@@ -192,7 +238,10 @@ a = Analysis(
     ["$WIN_STAGE_DIR/bin/sit.py"],
     pathex=[],
     binaries=[],
-    datas=[("$WIN_PROJECT_ROOT/ui", "ui")],
+    datas=[
+        ("$WIN_PROJECT_ROOT/ui", "ui"),
+$( [ -n "$WIN_FONTCONFIG_DIR" ] && echo "        (\"$WIN_FONTCONFIG_DIR\", \"fontconfig\")," )
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={

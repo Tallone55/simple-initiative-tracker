@@ -244,36 +244,18 @@ fi
 mkdir -p "$BUNDLE_DIR/share/icons/hicolor/scalable/apps"
 cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$BUNDLE_DIR/share/icons/hicolor/scalable/apps/"
 
-# -- launcher wrapper --------------------------------------------------
-#
-# GTK4 removed the old GTK3 per-window gtk_window_set_icon_name()/
-# set_icon() APIs entirely -- a GTK4 app's own window/taskbar icon
-# comes only from icon-theme lookup against its own application ID
-# (net.mystive.sit, matching the .svg above), and that lookup only
-# searches the paths listed in $XDG_DATA_DIRS. Confirmed directly:
-# running PyInstaller's own bootloader binary directly, with no
-# wrapper, launches the app fine, but the icon lookup silently misses,
-# since this extracted bundle's own share/ directory was never
-# anywhere on that search path to begin with -- only real system
-# paths are, by default -- and the desktop environment then falls
-# back to its own generic default icon rather than warning about it.
-# The real PyInstaller-built binary is renamed to
-# "$EXECUTABLE_NAME.bin", and this small wrapper -- the thing users
-# and any .desktop Exec= line actually invoke -- sets XDG_DATA_DIRS to
-# include this bundle's own share/ before exec'ing it, the same
-# pattern AppImage-style portable Linux launchers use for exactly this
-# reason. Written to determine its own real binary's name from its own
-# filename at runtime (appending ".bin"), not from a value baked in at
-# build time, so it stays correct if this bundle is ever renamed after
-# extraction.
-mv "$BUNDLE_DIR/$EXECUTABLE_NAME" "$BUNDLE_DIR/$EXECUTABLE_NAME.bin"
-cat > "$BUNDLE_DIR/$EXECUTABLE_NAME" << 'LAUNCHEOF'
-#!/usr/bin/env bash
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export XDG_DATA_DIRS="$HERE/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-exec "$HERE/$(basename "${BASH_SOURCE[0]}").bin" "$@"
-LAUNCHEOF
-chmod +x "$BUNDLE_DIR/$EXECUTABLE_NAME"
+# No separate launcher wrapper here: GTK4's own icon-theme lookup
+# needs $XDG_DATA_DIRS pointed at this bundle's own share/ directory
+# (see bin/sit.py's own comment on this, right where it's actually
+# set), but that's handled by the app's own entry point now, in
+# Python, rather than by a second shell-script file sitting next to
+# the real compiled binary and shadowing its name. That two-file split
+# used to exist here and was removed on purpose: the wrapper and the
+# real binary "worked the same when run" by design, which is exactly
+# what made it a genuine ambiguity for anyone looking at the bundle
+# rather than a meaningful distinction -- one real executable that
+# sets its own environment correctly answers "which one do I run?"
+# without the question ever coming up.
 
 # -- archive ----------------------------------------------------------
 

@@ -191,18 +191,31 @@ real `gpg --verify` confirming it -- and confirmed to degrade cleanly
 default state for anyone who clones this repo without setting up the
 secrets above.
 
-`build_windows.sh` has since been confirmed functional on real
+`build_windows.sh`'s base build is confirmed functional on real
 Windows hardware -- it builds and the resulting portable app runs
-correctly, icon included. It was written and initially delivered
-untested (adapted from the verified Linux script to Windows's own
-conventions and PyInstaller's own `EXE()` support), and went through
-several real, on-hardware fixes before reaching this point: an
-MSYS2-path-translation bug in the generated `.spec` file (PyInstaller
-reported the entry script as not found, traced to POSIX-style paths
-embedded in generated text never getting MSYS2's usual argv
-conversion) and a missing app icon (the SVG-to-`.ico` conversion had
-been left as a commented-out manual step rather than real code). Both
-are fixed in the script as it stands now.
+correctly. It was written and initially delivered untested (adapted
+from the verified Linux script to Windows's own conventions and
+PyInstaller's own `EXE()` support), and getting to a working build
+took a real, on-hardware fix: an MSYS2-path-translation bug in the
+generated `.spec` file (PyInstaller reported the entry script as not
+found, traced to POSIX-style paths embedded in generated text never
+getting MSYS2's usual argv conversion).
+
+The app icon has gone through more iterations than that and is the
+least-settled part of this script. The SVG-to-`.ico` conversion had
+originally been left as a commented-out manual step rather than real
+code, so the first real build produced an .exe with no icon resource
+at all. Implementing that conversion via `rsvg-convert` + Pillow fixed
+the missing icon, but installing Pillow via `pip` then failed a
+subsequent real CI run outright, before the app could even be built,
+with a wheel-build error -- PyPI has no prebuilt wheel matching
+MSYS2's own Python ABI, and building it from source has its own
+native toolchain requirements a bare `pip install` doesn't provide.
+Pillow now installs via `pacman` instead (`mingw-w64-x86_64-python-
+pillow`), matching how `python-gobject`/`python-cairo` are already
+installed in this same script. That specific fix has not yet been
+through a real Windows run -- treat the next one as the actual
+verification, not this paragraph.
 
 `build_macos.sh` remains **UNTESTED** -- it still says so plainly in
 its own header comment. It was written by adapting the verified Linux
