@@ -49,6 +49,10 @@ if ! command -v python >/dev/null 2>&1; then
     echo "Error: python not found -- run this from an MSYS2 MINGW64 shell with mingw-w64-x86_64-python installed." >&2
     exit 1
 fi
+if ! command -v cygpath >/dev/null 2>&1; then
+    echo "Error: cygpath not found -- this script must run from an MSYS2 shell (cygpath ships with the msys2-runtime base package)." >&2
+    exit 1
+fi
 if ! python -c "import PyInstaller" >/dev/null 2>&1; then
     echo "Error: PyInstaller not importable -- run 'python -m pip install pyinstaller' first (see this script's own header comment)." >&2
     exit 1
@@ -90,16 +94,43 @@ if [ -f "$BUILD_DIR/icon.ico" ]; then
 fi
 
 # -- PyInstaller spec -------------------------------------------------
+#
+# Every path interpolated into the .spec file below goes through
+# `cygpath -m` first, converting it from MSYS2's own POSIX-style
+# representation (e.g. /d/a/simple-initiative-tracker/...) to a real
+# Windows path with a drive letter (D:/a/simple-initiative-tracker/...
+# -- forward slashes, so it embeds safely in a Python string literal
+# without backslash-escaping). This is NOT redundant with MSYS2's
+# well-known automatic argv path conversion: that conversion only
+# applies to arguments actually passed on a spawned process's command
+# line (which is why --distpath/--workpath below don't need this same
+# treatment), not to text written into a file that a later, separate
+# process reads back -- the .spec file here is generated once by bash
+# and then read by PyInstaller's own native-Windows Python, which
+# never sees these paths as argv and so never gets the chance to
+# translate them. Confirmed directly: without this conversion,
+# PyInstaller's own script-not-found error shows the raw, untranslated
+# path with a spurious drive letter prepended (Windows treats a
+# leading "/" with no drive letter as "root of the current drive",
+# reading "d" as a literal folder name rather than as MSYS2's own
+# drive-letter marker) -- e.g. D:/d/a/simple-initiative-tracker/... for
+# an original /d/a/simple-initiative-tracker/... path.
+WIN_STAGE_DIR="$(cygpath -m "$STAGE_DIR")"
+WIN_PROJECT_ROOT="$(cygpath -m "$PROJECT_ROOT")"
+WIN_ICO_PATH=""
+if [ -n "$ICO_PATH" ]; then
+    WIN_ICO_PATH="$(cygpath -m "$ICO_PATH")"
+fi
 
 SPEC_FILE="$BUILD_DIR/sit.spec"
 cat > "$SPEC_FILE" << SPECEOF
 # -*- mode: python ; coding: utf-8 -*-
 
 a = Analysis(
-    ["$STAGE_DIR/bin/sit.py"],
+    ["$WIN_STAGE_DIR/bin/sit.py"],
     pathex=[],
     binaries=[],
-    datas=[("$PROJECT_ROOT/ui", "ui")],
+    datas=[("$WIN_PROJECT_ROOT/ui", "ui")],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={
@@ -126,7 +157,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="$EXECUTABLE_NAME",
-    icon="$ICO_PATH",
+    icon="$WIN_ICO_PATH",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
