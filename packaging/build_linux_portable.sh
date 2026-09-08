@@ -121,7 +121,28 @@ a = Analysis(
                 "Gtk": "4.0",
                 "Gdk": "4.0",
             },
-            "icons": ["Adwaita", "hicolor"],
+            # "hicolor" removed from this list: PyInstaller's own gi
+            # hook collects the WHOLE hicolor icon theme tree present
+            # on the build machine when this is set -- confirmed
+            # directly, on this project's own build machine, that this
+            # pulled in every hicolor icon belonging to LibreOffice,
+            # ImageMagick, and everything else installed there,
+            # entirely unrelated to this app, along with a stale,
+            # pre-built icon-theme.cache reflecting that build
+            # machine's own icon set, not this bundle's. This app's
+            # own icon is handled separately already, via the explicit
+            # cp into share/icons/hicolor/ further down this script --
+            # nothing here ever needed PyInstaller's own hicolor
+            # collection to begin with, only Adwaita, for GTK's own UI
+            # chrome (buttons, spinners, and the like). A real,
+            # confirmed source of unnecessary bloat and a genuinely
+            # confusing bundled artifact either way -- not confirmed
+            # to be the cause of a real report of the taskbar icon
+            # regressing after the wrapper-script removal below, since
+            # direct testing here still resolved the icon correctly
+            # even with the stale hicolor cache present, but removed
+            # regardless since it was never actually needed.
+            "icons": ["Adwaita"],
             "themes": ["Adwaita"],
             "languages": ["en"],
         },
