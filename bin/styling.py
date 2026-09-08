@@ -1,6 +1,19 @@
 from gi.repository import Gdk, Gtk
 
 CSS = b"""
+/* No font is bundled with this app -- these are each platform's own
+   native UI font, present by default on every target this ships for,
+   rather than something that needs installing. Segoe UI ships with
+   every Windows release since Vista; Helvetica Neue with every macOS
+   release; Cantarell is GNOME's (and, by extension, Cinnamon/Mint's)
+   own default, with DejaVu Sans and Noto Sans as further, extremely
+   commonly-preinstalled Linux fallbacks before the final generic
+   sans-serif. Applied on the root `window` selector specifically so
+   it's inherited everywhere as CSS's own normal default, rather than
+   needing to be repeated on every individual widget selector below. */
+window {
+    font-family: "Segoe UI", "Cantarell", "Helvetica Neue", "DejaVu Sans", "Noto Sans", sans-serif;
+}
 headerbar button.action-add {
     background-color: #7cc47f;
     background-image: none;

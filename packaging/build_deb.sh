@@ -56,12 +56,22 @@ cat > "$PKGROOT/DEBIAN/postinst" << POSTINST
 #!/bin/sh
 set -e
 
+# GTK's icon cache staleness check wants the icon's own parent
+# directory to have a newer mtime than the cache file -- confirmed
+# against a real Debian bug report (#369755) that this doesn't always
+# happen "for free" just from a file landing in an existing directory,
+# depending on how it got there. Touched explicitly, before rebuilding
+# the cache below, so that check can't be fooled by a directory mtime
+# dpkg's own extraction happened not to bump on some particular
+# dpkg/filesystem combination.
+touch /usr/share/icons/hicolor/scalable/apps 2>/dev/null || true
+
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database -q /usr/share/applications || true
 fi
 
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-    gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || true
+    gtk-update-icon-cache -f /usr/share/icons/hicolor >/dev/null 2>&1 || true
 fi
 
 # Cinnamon's own menu watches .desktop files for changes (via GIO's
@@ -76,10 +86,14 @@ fi
 # moment later. A \`touch\` here forces a second, fresh change event
 # once the cache is already correct, which is the same effect as
 # manually re-editing the entry in Cinnamon's own menu editor and
-# resaving it -- confirmed empirically to make the correct icon
-# appear immediately, with no session restart, which is what this
-# aims to reproduce automatically on every install/upgrade rather
-# than requiring that manual step.
+# resaving it -- confirmed empirically, once, to make the correct icon
+# appear immediately with no session restart. Reported since as still
+# not always sufficient on its own -- verified directly that the
+# underlying icon-theme.cache file itself is correctly and promptly
+# rebuilt with the right content by the two steps above, in both a
+# fresh install and an upgrade over an existing one, so whatever gap
+# remains is specifically in Cinnamon's own already-running, in-memory
+# state, not the on-disk cache this script controls.
 touch /usr/share/applications/$BUNDLE_ID.desktop 2>/dev/null || true
 
 # \$2 is the previously-configured version when dpkg is upgrading an

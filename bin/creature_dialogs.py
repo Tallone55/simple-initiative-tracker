@@ -4,7 +4,7 @@
 from gi.repository import Gtk
 
 from ui_paths import EDIT_FIELD_UI_PATH, EDIT_HITPOINTS_UI_PATH, ADD_CREATURE_UI_PATH
-from models import Creature
+from models import Creature, ability_modifier
 from expressions import evaluate_int_expression, ExpressionError
 from app_mode import Mode
 from creature_stats_dialog import open_creature_stats_dialog
@@ -172,15 +172,37 @@ def open_add_creature_dialog(parent, mode, on_added):
         base_name = name_entry.get_text().strip() or "Unnamed"
         count = int(count_spin.get_value())
         status = status_entry.get_text().strip()
-        raw_init = init_entry.get_text().strip() or "1d20"
+        raw_init = init_entry.get_text().strip()
+        # Left blank, initiative defaults to 1d20 plus the creature's
+        # own Dexterity modifier, not a bare 1d20 -- but Dexterity
+        # itself is re-evaluated fresh per creature below (it can be a
+        # dice expression too, e.g. "10+1d4", rolled separately for
+        # each one in a multi-add), so the default expression has to
+        # be rebuilt per creature alongside it, not computed once up
+        # front the way a fixed "1d20" literal could be.
+        init_left_blank = not raw_init
+        # In simple mode specifically, a blank Dexterity field is
+        # treated as "undefined" (assume 10, modifier +0) rather than
+        # the 0 an empty expression normally evaluates to -- a real
+        # entered 0 still gives its real -5 modifier. This is what
+        # keeps "everything left blank" behaving exactly as it did
+        # before this feature existed (1d20, unmodified). Combat mode
+        # has no equivalent blank state to detect -- Dexterity there
+        # comes from the stats editor, which starts at 0 whether or
+        # not it's ever opened -- so its modifier is used as-is.
+        dex_undefined = not is_combat_mode and not dex_entry.get_text().strip()
 
         creatures = []
         for i in range(count):
             try:
                 hitpoints = evaluate_int_expression(hp_entry.get_text())
                 armor_class = evaluate_int_expression(ac_entry.get_text())
-                initiative_roll = evaluate_int_expression(raw_init)
                 dexterity = staged_stats["dexterity"] if is_combat_mode else evaluate_int_expression(dex_entry.get_text())
+                if init_left_blank:
+                    dex_modifier = 0 if dex_undefined else ability_modifier(dexterity)
+                    initiative_roll = evaluate_int_expression(f"1d20{dex_modifier:+d}")
+                else:
+                    initiative_roll = evaluate_int_expression(raw_init)
             except ExpressionError:
                 show_error(
                     "Hitpoints, Armor Class, Initiative Roll, and Dexterity "
