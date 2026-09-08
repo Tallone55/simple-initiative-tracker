@@ -25,6 +25,11 @@ DEB_FILE="$DIST_DIR/${PKG_NAME}_${VERSION}_${ARCH}.deb"
 
 echo "Building ${APP_NAME} ${VERSION} (.deb)..."
 
+if ! command -v rsvg-convert >/dev/null 2>&1; then
+    echo "Error: rsvg-convert not found -- needed to rasterize a pixmaps fallback icon (see build_deb.sh's own comment near ICON_SRC for why this exists). Install librsvg2-bin." >&2
+    exit 1
+fi
+
 rm -rf "$PKGROOT"
 mkdir -p \
     "$PKGROOT/DEBIAN" \
@@ -33,6 +38,7 @@ mkdir -p \
     "$PKGROOT/usr/bin" \
     "$PKGROOT/usr/share/applications" \
     "$PKGROOT/usr/share/icons/hicolor/scalable/apps" \
+    "$PKGROOT/usr/share/pixmaps" \
     "$DIST_DIR"
 
 # -- control files ------------------------------------------------
@@ -164,6 +170,24 @@ if [ ! -f "$ICON_SRC" ]; then
     exit 1
 fi
 cp "$ICON_SRC" "$PKGROOT/usr/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg"
+
+# Also rasterized to a plain, single-resolution PNG in
+# /usr/share/pixmaps/ -- a real .deb from a large, professionally
+# packaged application (Discord) was inspected directly and found to
+# rely on pixmaps as its *only* icon delivery mechanism, specifically
+# because it isn't backed by hicolor's own cached icon-theme.cache
+# index at all: a bare Icon=$BUNDLE_ID reference in the .desktop file
+# above resolves through hicolor first when that succeeds, falling
+# back to pixmaps -- a plain, uncached file lookup -- when it
+# doesn't. This exists alongside the scalable SVG above, not instead
+# of it, specifically to keep crisp vector rendering wherever hicolor
+# does resolve correctly, while giving Cinnamon (or any other desktop
+# environment) a cache-independent fallback for the moments it
+# doesn't -- namely, right after a fresh install or upgrade, before
+# whatever is keeping hicolor's own cache from refreshing promptly in
+# practice gets sorted out. 256px chosen to match Discord's own real,
+# shipped size for the same purpose.
+rsvg-convert -w 256 -h 256 "$ICON_SRC" -o "$PKGROOT/usr/share/pixmaps/$BUNDLE_ID.png"
 
 # -- permissions ------------------------------------------------
 
