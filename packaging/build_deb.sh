@@ -25,14 +25,6 @@ DEB_FILE="$DIST_DIR/${PKG_NAME}_${VERSION}_${ARCH}.deb"
 
 echo "Building ${APP_NAME} ${VERSION} (.deb)..."
 
-# rsvg-convert rasterizes a pixmaps fallback icon -- see the comment
-# near ICON_SRC below for why this exists. Needs librsvg2-bin
-# installed on the build machine.
-if ! command -v rsvg-convert >/dev/null 2>&1; then
-    echo "Error: rsvg-convert not found -- needed to rasterize a pixmaps fallback icon (see build_deb.sh's own comment near ICON_SRC for why this exists). Install librsvg2-bin." >&2
-    exit 1
-fi
-
 rm -rf "$PKGROOT"
 mkdir -p \
     "$PKGROOT/DEBIAN" \
@@ -41,7 +33,6 @@ mkdir -p \
     "$PKGROOT/usr/bin" \
     "$PKGROOT/usr/share/applications" \
     "$PKGROOT/usr/share/icons/hicolor/scalable/apps" \
-    "$PKGROOT/usr/share/pixmaps" \
     "$DIST_DIR"
 
 # -- control files ------------------------------------------------
@@ -65,53 +56,24 @@ cat > "$PKGROOT/DEBIAN/postinst" << POSTINST
 #!/bin/sh
 set -e
 
-# GTK's icon cache staleness check wants the icon's own parent
-# directory to have a newer mtime than the cache file -- confirmed
-# against a real Debian bug report (#369755) that this doesn't always
-# happen "for free" just from a file landing in an existing directory,
-# depending on how it got there. Touched explicitly, before rebuilding
-# the cache below, so that check can't be fooled by a directory mtime
-# dpkg's own extraction happened not to bump on some particular
-# dpkg/filesystem combination.
-touch /usr/share/icons/hicolor/scalable/apps 2>/dev/null || true
-
-if command -v update-desktop-database >/dev/null 2>&1; then
-    update-desktop-database -q /usr/share/applications || true
-fi
-
-if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-    gtk-update-icon-cache -f /usr/share/icons/hicolor >/dev/null 2>&1 || true
-fi
-
-# Cinnamon's own menu watches .desktop files for changes (via GIO's
-# GAppInfoMonitor, inotify-based) and only re-resolves an app's icon
-# when one actually changes -- it does NOT re-check on its own just
-# because the icon cache file above was rebuilt. Two different fixes
-# for this were tried directly against real installs and real
-# reinstalls -- a plain \`touch\` of the .desktop file, then a fuller
-# copy-then-rename specifically reproducing the richer file-change
-# event a real reinstall's own file replacement produces (confirmed
-# via inotifywait that touch alone only generates a bare ATTRIB event,
-# versus copy-then-rename's CREATE/MODIFY/CLOSE_WRITE/MOVED_FROM/
-# MOVED_TO sequence) -- and neither fixed a genuinely fresh install
-# (only ever working on a reinstall over one already in place, which
-# doesn't need fixing to begin with). That points to the gap being
-# specifically in how Cinnamon's own already-running app-system object
-# gets constructed the first time it sees this app's ID, not in
-# anything about how the .desktop file itself changes -- a boundary no
-# postinst-side file trick can reach into after the fact. Verified
-# directly, across both attempts, that the underlying icon-theme.cache
-# file itself is correctly and promptly rebuilt with the right content
-# by the two steps above, in both a fresh install and an upgrade over
-# an existing one, so this genuinely isn't about anything wrong with
-# the on-disk cache this script controls.
+# No touch, no gtk-update-icon-cache, no update-desktop-database here
+# anymore. All three were tried, in every order and combination this
+# investigation went through (touch alone; touch then a full
+# copy-then-rename; both cache-rebuild calls before the .desktop file
+# existed; both after it; both removed entirely, relying only on
+# hicolor-icon-theme's and desktop-file-utils's own dpkg triggers --
+# see /var/lib/dpkg/info/*.triggers, both register "interest-noawait"
+# on the relevant directory and fire automatically regardless of
+# anything this script does) -- confirmed, each time, via a real
+# install watched end to end with inotifywait, that the underlying
+# filesystem state (icon before .desktop file, correct cache content,
+# correct dpkg file tracking) was exactly as intended, and confirmed,
+# each time, that the reported symptom persisted anyway. That's a
+# strong signal this was never something happening at the filesystem
+# level, or reachable from this script, to begin with -- see
+# data.tar's own comment on how the actual .desktop file ordering is
+# now guaranteed regardless of postinst.
 #
-# Given that, this doesn't try a third .desktop-file trick. The
-# pixmaps fallback icon below (see the comment near ICON_SRC)
-# addresses the same symptom a different way -- sidestepping
-# hicolor/Cinnamon's own live-refresh behavior entirely, rather than
-# depending on it.
-
 # \$2 is the previously-configured version when dpkg is upgrading an
 # existing install in place (its own convention: postinst is called
 # as "configure <most-recently-configured-version>"), empty on a
@@ -160,19 +122,60 @@ exec python3 /usr/lib/$PKG_NAME/bin/sit.py "\$@"
 LAUNCHER
 
 # -- desktop entry + icon ------------------------------------------------
-
-cat > "$PKGROOT/usr/share/applications/$BUNDLE_ID.desktop" << DESKTOP
-[Desktop Entry]
-Type=Application
-Name=$APP_NAME
-Comment=Track combat initiative order for tabletop games
-Exec=$EXECUTABLE_NAME %f
-Icon=$BUNDLE_ID
-Categories=Game;Utility;
-MimeType=text/csv;
-Terminal=false
-StartupNotify=true
-DESKTOP
+#
+# Name=, Comment=, Categories=, MimeType=, Terminal=, StartupNotify=,
+# and StartupWMClass= all come from a single shared template
+# (ui/net.mystive.sit.desktop.in) rather than being hand-written here
+# a second time -- bin/sit.py fills in the exact same template for the
+# portable Linux build's own .desktop file. Only Exec= and Icon= are
+# filled in separately by each (Name= is shared too, via $APP_NAME
+# here and a matching hardcoded string there, rather than being pulled
+# from this project's own single build-time source of truth a second
+# way -- there isn't an equivalent to app_metadata.sh's own shell
+# variables reachable from a frozen PyInstaller build): Exec= is a
+# fixed, installed path here ("$EXECUTABLE_NAME %f", resolved via
+# $PATH) but has to be resolved fresh at runtime there (an extracted,
+# portable bundle's own location isn't known until it's actually
+# running).
+#
+# Icon= is an absolute path here, not a bare icon-theme name, even
+# though this .deb does install the icon into the system's own
+# hicolor theme, where a bare name would normally resolve correctly
+# on its own. Tried as a further, later attempt after ordering, dpkg
+# file tracking, and every combination of cache-rebuild calls all
+# independently failed to resolve a real, reported "menu icon stuck on
+# the generic fallback" symptom: a bare name depends on Cinnamon's own
+# icon-theme name-to-file resolution succeeding, which is exactly the
+# layer every one of those previous fixes was trying, indirectly, to
+# get right -- an absolute path bypasses that resolution step
+# entirely, the same way the portable build's own .desktop file
+# already has to (an extracted bundle's icon was never installed into
+# an icon theme location at all, so it never had a name to resolve in
+# the first place, and has used an absolute path from the start). This
+# is only possible for this .deb specifically because it installs the
+# icon to a single, fixed, always-the-same path -- not something the
+# portable build could ever rely on, since its own install location
+# varies by wherever it happens to be extracted.
+#
+# Written directly to its real, final location -- a normal,
+# dpkg-tracked package file, same as everything else here. An earlier
+# version staged this elsewhere and copied it into place from
+# postinst instead, specifically to control *when* it appeared
+# relative to the icon below; that's now handled by controlling
+# data.tar's own member order further down this script, which gets
+# the same ordering guarantee without giving up dpkg's own tracking of
+# this file (see postinst's own comment on why that tracking turned
+# out to matter for real, beyond just being tidy).
+DESKTOP_TEMPLATE="$PROJECT_ROOT/ui/$BUNDLE_ID.desktop.in"
+if [ ! -f "$DESKTOP_TEMPLATE" ]; then
+    echo "Error: expected .desktop template at $DESKTOP_TEMPLATE (not found)." >&2
+    exit 1
+fi
+sed \
+    -e "s|@NAME@|$APP_NAME|" \
+    -e "s|@EXEC@|$EXECUTABLE_NAME %f|" \
+    -e "s|@ICON@|/usr/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg|" \
+    "$DESKTOP_TEMPLATE" > "$PKGROOT/usr/share/applications/$BUNDLE_ID.desktop"
 
 ICON_SRC="$PROJECT_ROOT/ui/$BUNDLE_ID.svg"
 if [ ! -f "$ICON_SRC" ]; then
@@ -181,30 +184,6 @@ if [ ! -f "$ICON_SRC" ]; then
 fi
 cp "$ICON_SRC" "$PKGROOT/usr/share/icons/hicolor/scalable/apps/$BUNDLE_ID.svg"
 
-# Also rasterized to a plain, single-resolution PNG in
-# /usr/share/pixmaps/. A real .deb from a large, professionally
-# packaged application (Discord) was inspected directly and found to
-# rely on pixmaps as its *only* icon delivery mechanism, specifically
-# because it isn't backed by hicolor's own cached icon-theme.cache
-# index at all -- a bare Icon=$BUNDLE_ID reference in the .desktop
-# file above resolves through hicolor first when that succeeds,
-# falling back to pixmaps -- a plain, uncached file lookup -- when it
-# doesn't. This exists alongside the scalable SVG above, not instead
-# of it, specifically to keep crisp vector rendering wherever hicolor
-# does resolve correctly (confirmed directly: the taskbar icon, which
-# goes through this same hicolor lookup, already renders correctly
-# from the SVG on a fresh install), while giving Cinnamon's menu
-# applet specifically a cache-independent fallback for the one case
-# confirmed NOT to resolve promptly there -- a genuinely fresh
-# install, before that app has ever been seen by Cinnamon's own
-# already-running app-system object. Two different postinst-side
-# fixes aimed at that gap (see the comment above, near the .desktop
-# GAppInfoMonitor discussion) were tried and confirmed, on real
-# installs, not to close it -- this sidesteps it instead of depending
-# on it. 256px chosen to match Discord's own real, shipped size for
-# the same purpose.
-rsvg-convert -w 256 -h 256 "$ICON_SRC" -o "$PKGROOT/usr/share/pixmaps/$BUNDLE_ID.png"
-
 # -- permissions ------------------------------------------------
 
 find "$PKGROOT" -type d -exec chmod 755 {} +
@@ -212,8 +191,61 @@ find "$PKGROOT" -type f -exec chmod 644 {} +
 chmod 755 "$PKGROOT/DEBIAN/postinst" "$PKGROOT/DEBIAN/prerm" "$PKGROOT/usr/bin/$EXECUTABLE_NAME"
 
 # -- build ------------------------------------------------
+#
+# dpkg-deb's own build process sorts data.tar's members strictly by
+# path -- confirmed against Debian bug #719845, "dpkg-deb: Make file
+# order within {data,control}.tar.gz deterministic", a deliberate,
+# hardcoded sort baked into dpkg-deb's own C source since 2013 for
+# reproducible builds, not something exposed via any CLI flag to
+# override. That always puts usr/share/applications/ before
+# usr/share/icons/ for any path starting with those two prefixes,
+# regardless of file content -- confirmed directly, earlier, as the
+# actual root cause of this app's icon not resolving on a fresh
+# install: Cinnamon's own menu sees the .desktop file appear,
+# mid-unpack, before the icon it references exists at all.
+#
+# data.tar is therefore built directly here instead of delegating to
+# `dpkg-deb --build`, specifically to control that member order
+# explicitly: every file goes in sorted, the same way dpkg-deb's own
+# default does, for the same reproducibility reasons, EXCEPT this
+# app's own .desktop entry, which goes in last -- guaranteed to unpack
+# only once its own icon, and everything else in this package, already
+# has. An earlier version of this same fix tried to guarantee that
+# ordering from postinst instead, by shipping the .desktop file to a
+# staging path and copying it into place after the icon was certain to
+# already be unpacked -- confirmed working for the ordering itself,
+# but it broke dpkg's own file tracking for that path (a real,
+# reported regression: \`dpkg -S\` no longer recognized it, which
+# turned out to also be what Cinnamon's own "uninstall from the menu"
+# feature depends on, since dpkg no longer shipped it there directly).
+# Controlling data.tar's own member order instead gets the same
+# ordering guarantee while keeping the .desktop file a normal,
+# directly-shipped, fully dpkg-tracked package file, exactly like
+# every other file here.
+CONTROL_TAR="$BUILD_DIR/control.tar"
+DATA_TAR="$BUILD_DIR/data.tar"
+rm -f "$CONTROL_TAR" "$CONTROL_TAR.zst" "$DATA_TAR" "$DATA_TAR.zst"
 
-dpkg-deb --build --root-owner-group "$PKGROOT" "$DEB_FILE"
+tar --create --format=gnu --owner=0 --group=0 --numeric-owner \
+    -C "$PKGROOT/DEBIAN" --file="$CONTROL_TAR" .
+zstd -q -f "$CONTROL_TAR" -o "$CONTROL_TAR.zst"
+
+DESKTOP_REL="usr/share/applications/$BUNDLE_ID.desktop"
+DATA_FILELIST="$BUILD_DIR/data-filelist.txt"
+(
+    cd "$PKGROOT"
+    find . -mindepth 1 ! -path "./DEBIAN*" ! -path "./$DESKTOP_REL" | sort
+    echo "./$DESKTOP_REL"
+) > "$DATA_FILELIST"
+tar --create --format=gnu --owner=0 --group=0 --numeric-owner --no-recursion \
+    -C "$PKGROOT" --file="$DATA_TAR" --files-from="$DATA_FILELIST"
+zstd -q -f "$DATA_TAR" -o "$DATA_TAR.zst"
+
+echo "2.0" > "$BUILD_DIR/debian-binary"
+
+rm -f "$DEB_FILE"
+ar rc "$DEB_FILE" "$BUILD_DIR/debian-binary" "$CONTROL_TAR.zst" "$DATA_TAR.zst"
+
 sign_file_gpg "$DEB_FILE"
 
 echo

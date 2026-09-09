@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=@NAME@
+Comment=Track combat initiative order for tabletop games
+Exec=@EXEC@
+Icon=@ICON@
+Categories=Game;Utility;
+MimeType=text/csv;
+Terminal=false
+StartupNotify=true
+StartupWMClass=net.mystive.sit

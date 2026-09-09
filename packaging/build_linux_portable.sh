@@ -265,18 +265,30 @@ fi
 mkdir -p "$BUNDLE_DIR/share/icons/hicolor/scalable/apps"
 cp "$PROJECT_ROOT/ui/$BUNDLE_ID.svg" "$BUNDLE_DIR/share/icons/hicolor/scalable/apps/"
 
-# No separate launcher wrapper here: GTK4's own icon-theme lookup
-# needs $XDG_DATA_DIRS pointed at this bundle's own share/ directory
-# (see bin/sit.py's own comment on this, right where it's actually
-# set), but that's handled by the app's own entry point now, in
-# Python, rather than by a second shell-script file sitting next to
-# the real compiled binary and shadowing its name. That two-file split
-# used to exist here and was removed on purpose: the wrapper and the
-# real binary "worked the same when run" by design, which is exactly
-# what made it a genuine ambiguity for anyone looking at the bundle
-# rather than a meaningful distinction -- one real executable that
-# sets its own environment correctly answers "which one do I run?"
-# without the question ever coming up.
+# No launcher wrapper here, and no XDG_DATA_DIRS-related handling of
+# any kind, after several iterations of both that never actually
+# addressed the real problem. A wrapper script that set XDG_DATA_DIRS
+# was tried, removed for a single-executable bundle with the same fix
+# moved into bin/sit.py itself, then reintroduced (with the real
+# binary hidden as a dotfile) after a real report that the taskbar
+# icon had regressed -- all of which turned out to be chasing the
+# wrong layer. The actual cause: Cinnamon (and modern Linux desktops
+# generally) resolve a running window's taskbar icon by matching its
+# WM_CLASS against an *installed* .desktop file, not by asking the
+# app's own process what it thinks its icon is -- confirmed directly
+# against the exact symptom reported, that this build only ever showed
+# the correct icon when the .deb was also installed, from the exact
+# path the .deb installs it to. No amount of correctly setting this
+# process's own environment could ever have fixed that, since
+# Cinnamon's own panel process never reads it. The real fix -- setting
+# a stable window identity via GLib.set_prgname() and installing a
+# real .desktop file to ~/.local/share/applications/ on launch -- lives
+# in bin/sit.py now, where it belongs: this is about how the app
+# presents itself to the desktop shell, not something the build script
+# should construct on the app's behalf. See that file's own comment on
+# this for the full account, including how it was actually confirmed
+# (by directly querying a running window's real WM_CLASS with
+# xwininfo, not assumed).
 
 # -- archive ----------------------------------------------------------
 
