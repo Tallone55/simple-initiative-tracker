@@ -10,7 +10,7 @@ from session_manager import SessionManager
 from app_menus import build_hamburger_menu
 from ui_paths import APP_ICON_PATH
 from app_mode import Mode, MODE_LABELS, MODE_TO_INT, mode_from_int
-from app_metadata import APP_NAME, VERSION, MAINTAINER, MAINTAINER_EMAIL, REPO_URL
+from app_metadata import APP_NAME, VERSION, VERSION_DATE, MAINTAINER, MAINTAINER_EMAIL, REPO_URL
 import creature_commands
 
 
@@ -319,7 +319,7 @@ class AppWindow(Gtk.ApplicationWindow):
     def on_about(self, action, param):
         about = Gtk.AboutDialog(transient_for=self, modal=True)
         about.set_program_name(APP_NAME)
-        about.set_version(VERSION)
+        about.set_version(f"{VERSION} ({VERSION_DATE})")
         about.set_website(REPO_URL)
         about.set_website_label("GitHub Repository")
         about.set_authors([f"{MAINTAINER} <{MAINTAINER_EMAIL}>"])

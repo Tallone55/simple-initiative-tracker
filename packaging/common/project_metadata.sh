@@ -36,9 +36,28 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-# Stamps VERSION/MAINTAINER/MAINTAINER_EMAIL/REPO_URL as literal
-# constants into a build's own copy of bin/app_metadata.py, in place
-# of that file's own _FALLBACK_* defaults -- so a packaged build
+# The date the version above was last changed, YYYY-MM-DD. Preferred
+# source is git's own commit history for this file specifically, not
+# its filesystem mtime -- confirmed a real, common gap: a CI runner's
+# own checkout step routinely resets every file's mtime to the
+# checkout time, which would silently show "today" on every build
+# regardless of when pyproject.toml's own content was actually last
+# changed. Falls back to mtime only when git itself isn't usable here
+# (no .git present, or git not installed) -- still meaningful for a
+# plain source tarball built outside of any git checkout, just not as
+# reliably accurate as the commit history is when it's available.
+VERSION_DATE="$(git -C "$PROJECT_ROOT" log -1 --format=%cd --date=format:%Y-%m-%d -- "$PYPROJECT_TOML" 2>/dev/null || true)"
+if [ -z "$VERSION_DATE" ]; then
+    VERSION_DATE="$(python3 -c '
+import sys
+from datetime import date
+print(date.fromtimestamp(__import__("os").path.getmtime(sys.argv[1])).isoformat())
+' "$PYPROJECT_TOML")"
+fi
+
+# Stamps VERSION/MAINTAINER/MAINTAINER_EMAIL/REPO_URL/VERSION_DATE as
+# literal constants into a build's own copy of bin/app_metadata.py, in
+# place of that file's own _FALLBACK_* defaults -- so a packaged build
 # doesn't need to ship pyproject.toml at all just to know its own
 # version, and isn't relying on those defaults having been kept
 # up to date by hand (they weren't: the fallback version had drifted
@@ -59,6 +78,7 @@ _stamp_app_metadata() {
         -e "s|_FALLBACK_MAINTAINER = \".*\"|_FALLBACK_MAINTAINER = \"$MAINTAINER\"|" \
         -e "s|_FALLBACK_MAINTAINER_EMAIL = \".*\"|_FALLBACK_MAINTAINER_EMAIL = \"$MAINTAINER_EMAIL\"|" \
         -e "s|_FALLBACK_REPO_URL = \".*\"|_FALLBACK_REPO_URL = \"$REPO_URL\"|" \
+        -e "s|_FALLBACK_VERSION_DATE = \".*\"|_FALLBACK_VERSION_DATE = \"$VERSION_DATE\"|" \
         "$target"
     rm -f "$target.bak"
 }
