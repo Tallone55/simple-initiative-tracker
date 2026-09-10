@@ -42,6 +42,13 @@ def _load_pyproject_project_table():
 
 _project = _load_pyproject_project_table()
 
+# True exactly when pyproject.toml was actually read above, which only
+# happens running from source (see this module's own docstring on
+# why a packaged build never ships that file at all) -- a plain,
+# reusable way to tell the two cases apart, rather than each caller
+# re-deriving "was _project empty" for itself.
+RUNNING_FROM_SOURCE = bool(_project)
+
 VERSION = _project.get("version") or _FALLBACK_VERSION
 
 _authors = _project.get("authors") or []

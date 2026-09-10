@@ -4,7 +4,9 @@
 # Run from anywhere:
 #     ./packaging/build_deb.sh
 #
-# Output: packaging/dist/<package-name>_<version>_all.deb
+# Output: packaging/dist/<package-name>_<deb-version>_all.deb
+# (<deb-version> isn't pyproject.toml's raw version string verbatim --
+# see the comment near DEB_VERSION below for why it's transformed)
 
 set -euo pipefail
 
@@ -21,9 +23,47 @@ PKGROOT="$BUILD_DIR/pkgroot"
 DIST_DIR="$SCRIPT_DIR/dist"
 
 ARCH="all"
-DEB_FILE="$DIST_DIR/${PKG_NAME}_${VERSION}_${ARCH}.deb"
 
-echo "Building ${APP_NAME} ${VERSION} (.deb)..."
+# The .deb's own Version: (and its filename, and the upgrade message
+# in postinst) use $DEB_VERSION, not $VERSION directly -- confirmed,
+# with dpkg's own comparison tool, two real problems with using
+# $VERSION (pyproject.toml's raw PEP 440 string, e.g. "1.0.0rc10")
+# as-is:
+#
+# 1. dpkg treats a bare "rc10" suffix as *newer* than the plain
+#    release it precedes -- `dpkg --compare-versions 1.0.0rc10 gt
+#    1.0.0` is true, backwards from the intended meaning, and would
+#    make `apt upgrade` refuse to move from a1.0.0rc build to the
+#    actual 1.0.0 release without a force flag. Debian's own
+#    convention for this is a tilde, not a bare suffix -- confirmed
+#    the fix too: `dpkg --compare-versions 1.0.0~rc10 lt 1.0.0` is
+#    true. This is also what Python-to-Debian packaging tools
+#    (stdeb and similar) already do automatically, converting PEP
+#    440's a/b/rc/dev markers to Debian's ~a/~b/~rc/~dev -- not a
+#    convention invented for this project.
+# 2. Two builds sharing the same $VERSION -- true for every build
+#    made between one pyproject.toml version bump and the next --
+#    are fully indistinguishable to dpkg regardless of what actually
+#    changed: `dpkg --compare-versions 1.0.0rc10 eq 1.0.0rc10` is
+#    true, which is exactly why apt has been silently no-op'ing on
+#    "reinstalling" an already-installed version throughout this
+#    project's own testing, even when the .deb file itself had
+#    genuinely changed. Debian version strings have a dedicated
+#    field for exactly this, the debian_revision after the last
+#    hyphen -- $VERSION_DATE (already computed above, from git log
+#    where available) becomes that revision here, with its own
+#    hyphens stripped so the *only* hyphen left in the whole string
+#    is the one separating upstream_version from debian_revision, as
+#    dpkg's own parsing expects.
+_DEB_UPSTREAM_VERSION="$(python3 -c '
+import re, sys
+print(re.sub(r"[-_.]?(a|b|rc|dev)(\d*)$", r"~\1\2", sys.argv[1]))
+' "$VERSION")"
+DEB_VERSION="${_DEB_UPSTREAM_VERSION}-${VERSION_DATE//-/}"
+
+DEB_FILE="$DIST_DIR/${PKG_NAME}_${DEB_VERSION}_${ARCH}.deb"
+
+echo "Building ${APP_NAME} ${VERSION} (.deb ${DEB_VERSION})..."
 
 rm -rf "$PKGROOT"
 mkdir -p \
@@ -39,7 +79,7 @@ mkdir -p \
 
 cat > "$PKGROOT/DEBIAN/control" << CONTROL
 Package: $PKG_NAME
-Version: $VERSION
+Version: $DEB_VERSION
 Section: games
 Priority: optional
 Architecture: all
@@ -82,7 +122,7 @@ set -e
 # this is just surfacing that an upgrade happened, since a running
 # GUI instance won't pick up the new files until it's restarted.
 if [ "\$1" = "configure" ] && [ -n "\${2:-}" ]; then
-    echo "Upgraded $APP_NAME from \$2 to $VERSION."
+    echo "Upgraded $APP_NAME from \$2 to $DEB_VERSION."
     echo "If $APP_NAME was already running, restart it to use the new version."
 fi
 
