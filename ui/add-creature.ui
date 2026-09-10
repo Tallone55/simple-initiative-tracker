@@ -16,12 +16,12 @@
         <property name="margin-end">12</property>
         <child>
           <object class="GtkEntry" id="name_entry">
-            <property name="placeholder-text">Creature name (blank = Unnamed)</property>
+            <property name="placeholder-text">Creature name</property>
           </object>
         </child>
         <child>
           <object class="GtkEntry" id="hp_entry">
-            <property name="placeholder-text">Hitpoints (starting/max)</property>
+            <property name="placeholder-text">Hitpoints</property>
             <property name="input-purpose">number</property>
           </object>
         </child>
@@ -33,7 +33,7 @@
         </child>
         <child>
           <object class="GtkEntry" id="init_entry">
-            <property name="placeholder-text">Initiative Roll (blank = roll 1d20)</property>
+            <property name="placeholder-text">Initiative Roll (empty will roll from dex)</property>
             <property name="input-purpose">number</property>
           </object>
         </child>
@@ -44,7 +44,7 @@
         </child>
         <child>
           <object class="GtkEntry" id="dex_entry">
-            <property name="placeholder-text">Dexterity for initiative tie-breaks</property>
+            <property name="placeholder-text">Dexterity</property>
             <property name="input-purpose">number</property>
           </object>
         </child>
@@ -61,7 +61,7 @@
             <property name="spacing">6</property>
             <child>
               <object class="GtkLabel">
-                <property name="label">Number to add</property>
+                <property name="label">Creature count</property>
                 <property name="hexpand">true</property>
                 <property name="xalign">0</property>
               </object>

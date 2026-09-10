@@ -250,7 +250,23 @@ $( [ -n "$WIN_FONTCONFIG_DIR" ] && echo "        (\"$WIN_FONTCONFIG_DIR\", \"fon
                 "Gtk": "4.0",
                 "Gdk": "4.0",
             },
-            "icons": ["Adwaita", "hicolor"],
+            # "hicolor" removed from this list: PyInstaller's own gi
+            # hook collects the WHOLE hicolor icon theme tree present
+            # on the build machine when this is set -- confirmed
+            # directly, on this project's own Linux build machine,
+            # that this pulled in every hicolor icon belonging to
+            # whatever else happened to be installed there, entirely
+            # unrelated to this app, along with a stale, pre-built
+            # icon-theme.cache reflecting that build machine's own
+            # icon set, not this bundle's. This app's own icon is
+            # never resolved through icon-theme lookup at all -- its
+            # .desktop-equivalent on this platform (the .exe's own
+            # icon resource, set via icon= on EXE() below) uses a
+            # direct .ico file, not a name -- so nothing here ever
+            # needed PyInstaller's own hicolor collection to begin
+            # with, only Adwaita, for GTK's own UI chrome (buttons,
+            # spinners, and the like).
+            "icons": ["Adwaita"],
             "themes": ["Adwaita"],
             "languages": ["en"],
         },
@@ -260,6 +276,22 @@ $( [ -n "$WIN_FONTCONFIG_DIR" ] && echo "        (\"$WIN_FONTCONFIG_DIR\", \"fon
     noarchive=False,
     optimize=0,
 )
+
+# Adwaita/cursors/ -- mouse cursor bitmaps (arrow, hand, text-select,
+# and so on) -- is excluded the same way, and for the same reason, as
+# on the Linux build: confirmed there that this is 11MB of this app's
+# ~14MB total icon payload, and that GTK4 apps resolve cursor shapes
+# through the window system's own configured cursor theme, not
+# through an application's own bundled icon theme. That's even more
+# clearly true on Windows specifically, which uses native Win32 cursor
+# APIs for this rather than anything X11/Wayland-style at all -- so if
+# anything, this app has even less use for a bundled cursor theme here
+# than it does on Linux, not less reason to exclude it.
+a.datas = [
+    entry for entry in a.datas
+    if "icons/Adwaita/cursors/" not in entry[0]
+]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(

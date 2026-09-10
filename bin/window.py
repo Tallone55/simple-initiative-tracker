@@ -104,18 +104,28 @@ class AppWindow(Gtk.ApplicationWindow):
         about_action.connect("activate", self.on_about)
         self.add_action(about_action)
 
+        add_creature_action = Gio.SimpleAction(name="add-creature")
+        add_creature_action.connect("activate", self.on_add_creature_action)
+        self.add_action(add_creature_action)
+
+        next_turn_action = Gio.SimpleAction(name="next-turn")
+        next_turn_action.connect("activate", self.on_next_turn_action)
+        self.add_action(next_turn_action)
+
     def _build_headerbar(self):
         headerbar = Gtk.HeaderBar()
 
         add_button = Gtk.Button(label="Add Creature")
         add_button.add_css_class("action-add")
         add_button.set_has_frame(True)
+        add_button.set_tooltip_text("Add Creature (Shift+A)")
         add_button.connect("clicked", self.on_add_creature_clicked)
         headerbar.pack_start(add_button)
 
         next_turn_button = Gtk.Button(label="Next Turn")
         next_turn_button.add_css_class("action-next-turn")
         next_turn_button.set_has_frame(True)
+        next_turn_button.set_tooltip_text("Next Turn (Shift+Space)")
         next_turn_button.connect("clicked", self.on_next_turn_clicked)
         headerbar.pack_start(next_turn_button)
 
@@ -281,6 +291,12 @@ class AppWindow(Gtk.ApplicationWindow):
 
     def on_add_creature_clicked(self, button):
         open_add_creature_dialog(self, self.mode, self._handle_creatures_added)
+
+    def on_next_turn_action(self, action, param):
+        self.on_next_turn_clicked(None)
+
+    def on_add_creature_action(self, action, param):
+        self.on_add_creature_clicked(None)
 
     def _handle_creatures_added(self, creatures):
         resort = creature_commands.add_creatures(self.initiative_database, self.undo_manager, creatures)

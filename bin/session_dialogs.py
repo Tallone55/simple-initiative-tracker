@@ -4,6 +4,7 @@ file."""
 from gi.repository import Gtk
 
 from ui_paths import UNSAVED_CHANGES_UI_PATH
+from dialog_utils import wire_dialog_shortcuts
 
 
 def open_unsaved_changes_dialog(parent, on_export, on_discard, message=None):
@@ -37,4 +38,5 @@ def open_unsaved_changes_dialog(parent, on_export, on_discard, message=None):
     export_button.connect("clicked", handle_export)
     discard_button.connect("clicked", handle_discard)
     cancel_button.connect("clicked", handle_cancel)
+    wire_dialog_shortcuts(window, on_escape=lambda: handle_cancel(None))
     window.present()

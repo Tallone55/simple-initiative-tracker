@@ -19,13 +19,14 @@ To-Hit Bonus sit in their own row above, since neither belongs to any
 one ability.
 """
 
-from gi.repository import Gtk
+from gi.repository import Gtk, Pango
 
 from models import (
     ABILITIES, ABILITY_ABBREVIATIONS, SKILLS_BY_ABILITY,
     ability_modifier, position_index, encode_pattern, decode_pattern,
 )
 from expressions import evaluate_int_expression, ExpressionError
+from dialog_utils import wire_dialog_shortcuts
 
 STATS_DIALOG_TITLE = "Edit Stats"
 
@@ -47,7 +48,15 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
     window = Gtk.Window(title=STATS_DIALOG_TITLE)
     window.set_modal(True)
     window.set_transient_for(parent)
-    window.set_default_size(1350, 680)
+    window.set_default_size(1440, 680)
+
+    # Update/Cancel (and the error label they trigger) live outside
+    # outer_scroller now, in this separate window_root, specifically
+    # so they stay reachable at a fixed position without scrolling,
+    # rather than being part of the scrollable content further down
+    # that a tall stat block can push below the fold.
+    window_root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    window.set_child(window_root)
 
     outer_scroller = Gtk.ScrolledWindow(vexpand=True, hexpand=True)
     root = Gtk.Box(
@@ -55,7 +64,7 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
         margin_top=8, margin_bottom=8, margin_start=8, margin_end=8,
     )
     outer_scroller.set_child(root)
-    window.set_child(outer_scroller)
+    window_root.append(outer_scroller)
 
     # -- proficiency bonus + to-hit bonus ------------------------------------------------
 
@@ -85,6 +94,7 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
 
     rows_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
     ability_entries = {}
+    ability_mod_labels = {}  # ability -> Gtk.Label, the base modifier beside its score entry
     total_labels = {}  # ("save", ability) or ("skill", name) -> Gtk.Label
     save_prof_checks = {}
     save_adv_checks = {}
@@ -93,7 +103,7 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
 
     # Fixed widths so every block of a given type lines up in a
     # column regardless of its own content.
-    _ABILITY_BLOCK_WIDTH = 56
+    _ABILITY_BLOCK_WIDTH = 100
     _SAVE_BLOCK_WIDTH = 150
     _SKILL_BLOCK_WIDTH = 150
     _MAX_SKILLS_PER_ROW = max(len(skills) for skills in SKILLS_BY_ABILITY.values())
@@ -138,11 +148,65 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
         placeholder.set_size_request(_SKILL_BLOCK_WIDTH, -1)
         return placeholder
 
+    def _build_stat_total_label():
+        """A calculated save/skill total (e.g. "+0", "+15") packed
+        into its own small box with a genuinely fixed width -- unlike
+        width_chars alone, which is only a minimum-size *hint*.
+        Confirmed directly (measuring the label's own allocated width
+        across a range of values) that width_chars=3 alone still lets
+        the label grow -- "+15" measured 3px wider than "+5" or "-15"
+        despite all being within 3 characters, which was enough to
+        visibly shift every other block in the same row sideways
+        whenever a modifier gained a second significant digit.
+        max_width_chars, set to the same value as width_chars, pins
+        the label's natural size request to exactly that width rather
+        than just a floor.
+
+        That value is 5 (originally set to 4, confirmed correct at the
+        time; raised by one further character afterward on request,
+        without a full retest -- if ellipsizing or shifting ever
+        reappears, that's the first thing to re-verify): confirmed
+        directly (checking
+        Pango.Layout.is_ellipsized(), not just the rendered width)
+        that a 3-character budget wasn't actually wide enough for
+        every 3-character string -- "+15" and "+20" were genuinely
+        being cut off (their "+" plus two digits render wider than
+        the budget's own representative character width, unlike e.g.
+        "-15"), while "-15" itself fit fine, so this wasn't a matter
+        of tightening the ellipsize threshold but of the reserved
+        width being too narrow for glyph combinations it was meant to
+        cover. 4 characters' worth of width was confirmed, at the
+        time, the same way, to fit every value tried (including a
+        deliberately oversized "+30") without any ellipsizing at all
+        -- the
+        ellipsize mode stays set below regardless, as a safety net for
+        anything wider still, rather than something expected to
+        actually trigger in normal use now."""
+        total_label = Gtk.Label(
+            label="+0", width_chars=5, max_width_chars=5, xalign=1, valign=Gtk.Align.CENTER,
+        )
+        total_label.set_ellipsize(Pango.EllipsizeMode.END)
+        total_label.add_css_class("stat-total")
+        wrapper = Gtk.Box(hexpand=False)
+        wrapper.append(total_label)
+        return wrapper, total_label
+
     def _build_save_block(ability):
         idx = position_index("save", ability)
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        total_label = Gtk.Label(label="+0", width_chars=3, xalign=1, valign=Gtk.Align.CENTER)
-        row.append(total_label)
+        # Confirmed directly (measuring actual allocated y-centers):
+        # this row's own two Gtk.CheckButtons give it a taller natural
+        # height than the ability entry's row or a skill row's
+        # button+checkbox pairing, which left it sitting ~4.5px higher
+        # than everything else despite its own valign=CENTER below --
+        # that only centers this row within whatever space it
+        # naturally claims, not against the other blocks' own
+        # differently-sized rows in the same overall stat-row. Nudged
+        # down to match; see _build_skill_block's own row, which
+        # doesn't need this, for the actual root difference.
+        row.set_margin_top(4)
+        total_wrapper, total_label = _build_stat_total_label()
+        row.append(total_wrapper)
         total_labels[("save", ability)] = total_label
 
         prof_check = Gtk.CheckButton(label="Prof.", valign=Gtk.Align.CENTER, hexpand=False)
@@ -162,8 +226,8 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
     def _build_skill_block(skill_name):
         idx = position_index("skill", skill_name)
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        total_label = Gtk.Label(label="+0", width_chars=3, xalign=1, valign=Gtk.Align.CENTER)
-        row.append(total_label)
+        total_wrapper, total_label = _build_stat_total_label()
+        row.append(total_wrapper)
         total_labels[("skill", skill_name)] = total_label
 
         # Three-state proficiency as one cyclable toggle button
@@ -207,15 +271,18 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
         # own rendered size.
         entry.set_halign(Gtk.Align.FILL)
         entry.set_hexpand(False)
-        entry_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        mod_wrapper, mod_label = _build_stat_total_label()
+        entry_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         left_spacer = Gtk.Box(hexpand=True)
         right_spacer = Gtk.Box(hexpand=True)
         entry_row.append(left_spacer)
         entry_row.append(entry)
+        entry_row.append(mod_wrapper)
         entry_row.append(right_spacer)
         score = initial_stats.get(ability, 0)
         entry.set_text(str(score) if score else "")
         ability_entries[ability] = entry
+        ability_mod_labels[ability] = mod_label
         row_card.append(_labeled_block(
             ABILITY_ABBREVIATIONS[ability], entry_row, _ABILITY_BLOCK_WIDTH,
             expand_controls=True, margin_end=0,
@@ -258,6 +325,7 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
         prof_bonus = _current_prof_bonus()
         for ability in ABILITIES:
             mod = ability_modifier(_current_score(ability))
+            ability_mod_labels[ability].set_label(_format_modifier(mod))
 
             save_total = mod + (prof_bonus if save_prof_checks[ability].get_active() else 0)
             total_labels[("save", ability)].set_label(_format_modifier(save_total))
@@ -274,16 +342,31 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
     recompute()
 
     # -- buttons ------------------------------------------------
+    #
+    # error_label and button_box are appended to window_root, not
+    # root -- see window_root's own comment, right where it's
+    # created, for why: this is what actually keeps Update/Cancel (and
+    # the error message clicking Update can trigger) at a fixed
+    # position outside the scrollable area above, rather than moving
+    # them here alone doing nothing on its own.
 
-    error_label = Gtk.Label(visible=False, wrap=True, xalign=0, css_classes=["error"])
-    root.append(error_label)
+    window_root.append(Gtk.Separator())
 
-    button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, halign=Gtk.Align.END)
+    error_label = Gtk.Label(
+        visible=False, wrap=True, xalign=0, css_classes=["error"],
+        margin_start=8, margin_end=8, margin_top=6,
+    )
+    window_root.append(error_label)
+
+    button_box = Gtk.Box(
+        orientation=Gtk.Orientation.HORIZONTAL, spacing=6, halign=Gtk.Align.END,
+        margin_start=8, margin_end=8, margin_top=6, margin_bottom=8,
+    )
     cancel_button = Gtk.Button(label="Cancel")
     update_button = Gtk.Button(label="Update", receives_default=True, css_classes=["suggested-action"])
     button_box.append(cancel_button)
     button_box.append(update_button)
-    root.append(button_box)
+    window_root.append(button_box)
 
     def on_update(_button):
         try:
@@ -317,4 +400,10 @@ def open_creature_stats_dialog(parent, initial_stats, on_committed):
 
     update_button.connect("clicked", on_update)
     cancel_button.connect("clicked", on_cancel)
+    wire_dialog_shortcuts(
+        window,
+        on_escape=lambda: on_cancel(None),
+        on_confirm=lambda: on_update(None),
+        confirm_entries=[prof_entry, to_hit_entry, *ability_entries.values()],
+    )
     window.present()

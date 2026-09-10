@@ -1,6 +1,6 @@
 """Builds the Gtk.ColumnView columns for creature entries."""
 
-from gi.repository import Gtk, Pango
+from gi.repository import Gtk, Gdk, Pango
 
 
 class CreatureColumnFactory:
@@ -135,6 +135,7 @@ class CreatureColumnFactory:
             label.set_overflow(Gtk.Overflow.HIDDEN)
             label.set_cursor_from_name("pointer")
             label.set_size_request(min_width, -1)
+            label.set_tooltip_text("Edit Field")
 
             click_gesture = Gtk.GestureClick()
             click_gesture.set_button(1)
@@ -208,7 +209,7 @@ class CreatureColumnFactory:
 
         def on_setup(factory, list_item):
             button = Gtk.Button.new_from_icon_name("user-trash-symbolic")
-            button.set_tooltip_text("Remove")
+            button.set_tooltip_text("Remove (Delete)")
             button.add_css_class("flat")
             button.add_css_class("icon-cell-button")
             button.set_overflow(Gtk.Overflow.HIDDEN)
@@ -216,6 +217,26 @@ class CreatureColumnFactory:
             button.set_valign(Gtk.Align.CENTER)
             list_item.set_child(button)
             list_item.click_handler_id = None
+            # CAPTURE phase, not the default BUBBLE: capture runs
+            # before a widget's own target-phase handling, which is
+            # what a button's built-in Enter/Space-activates-me
+            # binding uses (confirmed against GTK's own documented
+            # propagation model -- capture events reach the target
+            # widget first, target-phase handlers run only after).
+            # Returning True for Enter/KP_Enter here, without calling
+            # the removal callback, is what actually blocks the
+            # button's own default activation rather than just adding
+            # a second way to trigger it -- accidentally hitting
+            # Enter/Space while tabbed onto this specific button used
+            # to delete the row outright, which is exactly the
+            # muscle-memory slip this exists to prevent. Delete is
+            # wired the same way, but does call it, since a focused
+            # button doesn't have any built-in binding for that key
+            # to conflict with.
+            key_controller = Gtk.EventControllerKey()
+            key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            list_item.remove_key_controller = key_controller
+            button.add_controller(key_controller)
 
         def on_bind(factory, list_item):
             creature_obj = list_item.get_item()
@@ -224,11 +245,26 @@ class CreatureColumnFactory:
                 "clicked", lambda b: self.on_remove_requested(creature_obj)
             )
 
+            def on_key_pressed(_controller, keyval, _keycode, _state):
+                if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+                    return True
+                if keyval == Gdk.KEY_Delete:
+                    self.on_remove_requested(creature_obj)
+                    return True
+                return False
+
+            list_item.remove_key_handler_id = list_item.remove_key_controller.connect(
+                "key-pressed", on_key_pressed
+            )
+
         def on_unbind(factory, list_item):
             button = list_item.get_child()
             if list_item.click_handler_id is not None:
                 button.disconnect(list_item.click_handler_id)
                 list_item.click_handler_id = None
+            if getattr(list_item, "remove_key_handler_id", None) is not None:
+                list_item.remove_key_controller.disconnect(list_item.remove_key_handler_id)
+                list_item.remove_key_handler_id = None
 
         factory.connect("setup", on_setup)
         factory.connect("bind", on_bind)

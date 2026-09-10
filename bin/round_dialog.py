@@ -4,6 +4,7 @@ from gi.repository import Gtk
 
 from ui_paths import EDIT_ROUND_UI_PATH
 from expressions import evaluate_int_expression, ExpressionError
+from dialog_utils import wire_dialog_shortcuts
 
 
 def open_edit_round_dialog(parent, current_round, on_committed):
@@ -48,4 +49,10 @@ def open_edit_round_dialog(parent, current_round, on_committed):
 
     confirm_button.connect("clicked", on_confirm)
     cancel_button.connect("clicked", on_cancel)
+    wire_dialog_shortcuts(
+        window,
+        on_escape=lambda: on_cancel(None),
+        on_confirm=lambda: on_confirm(None),
+        confirm_entries=[entry],
+    )
     window.present()

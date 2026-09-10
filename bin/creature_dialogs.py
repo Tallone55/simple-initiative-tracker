@@ -9,6 +9,7 @@ from expressions import evaluate_int_expression, ExpressionError
 from app_mode import Mode
 from creature_stats_dialog import open_creature_stats_dialog
 from creature_commands import STATS_FIELDS
+from dialog_utils import wire_dialog_shortcuts
 
 _STRING_FIELDS = {"name", "status"}
 
@@ -55,6 +56,12 @@ def open_edit_dialog(parent, creature_obj, field_name, display_name, on_committe
 
     update_button.connect("clicked", on_update)
     cancel_button.connect("clicked", on_cancel)
+    wire_dialog_shortcuts(
+        window,
+        on_escape=lambda: on_cancel(None),
+        on_confirm=lambda: on_update(None),
+        confirm_entries=[entry],
+    )
     window.present()
 
 
@@ -122,6 +129,12 @@ def open_edit_hitpoints_dialog(parent, creature_obj, on_committed):
 
     update_button.connect("clicked", on_update)
     cancel_button.connect("clicked", on_cancel)
+    wire_dialog_shortcuts(
+        window,
+        on_escape=lambda: on_cancel(None),
+        on_confirm=lambda: on_update(None),
+        confirm_entries=[current_entry, max_entry, temp_entry],
+    )
     window.present()
 
 
@@ -232,4 +245,5 @@ def open_add_creature_dialog(parent, mode, on_added):
 
     add_button.connect("clicked", on_add)
     cancel_button.connect("clicked", on_cancel)
+    wire_dialog_shortcuts(window, on_escape=lambda: on_cancel(None))
     window.present()

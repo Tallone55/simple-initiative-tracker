@@ -76,6 +76,13 @@ headerbar button.action-next-turn:active {
     background-color: #f5c6cb;
     color: #6b1f27;
 }
+/* Edit Stats window: the calculated save/skill total next to each
+   one's own proficiency controls (e.g. "+0", "+5") -- distinct from
+   the raw ability score and Prof./To-Hit Bonus entries next to it,
+   which are typed in directly rather than derived from them. */
+.stat-total {
+    font-weight: bold;
+}
 .round-counter {
     font-weight: bold;
     font-size: 1.15em;

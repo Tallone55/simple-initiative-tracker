@@ -186,13 +186,11 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install GTK4 + PyGObject build dependencies
-        # NOTE: this job builds with packaging/build_macos.sh, which
-        # is UNTESTED on real macOS -- see that script's own header
-        # comment. In particular, it is not confirmed whether
-        # Homebrew's own PyGObject build hits the same GIRepository-3.0
-        # gap the Linux build did (see the Linux job's own "Install
-        # GTK4 + PyGObject build dependencies" step for what that
-        # was), or whether gobject-introspection already covers it.
+        # packaging/build_macos.sh is confirmed working on real macOS
+        # hardware. gobject-introspection covers the GIRepository-3.0
+        # gap the Linux build needed a separate package for (see the
+        # Linux job's own "Install GTK4 + PyGObject build
+        # dependencies" step).
         run: |
           brew untap aws/tap || true
           HOMEBREW_NO_AUTO_UPDATE=1 brew install gtk4 pygobject3 gobject-introspection librsvg

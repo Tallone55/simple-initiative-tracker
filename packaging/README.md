@@ -217,15 +217,5 @@ installed in this same script. That specific fix has not yet been
 through a real Windows run -- treat the next one as the actual
 verification, not this paragraph.
 
-`build_macos.sh` remains **UNTESTED** -- it still says so plainly in
-its own header comment. It was written by adapting the verified Linux
-script to macOS's own conventions and PyInstaller's own documented
-`BUNDLE()` support, but no macOS machine has been available to
-actually build or launch it. In particular, the GIRepository-3.0 gap
-above was diagnosed and fixed on Linux specifically, and separately
-confirmed not to block on Windows; whether it reproduces on Homebrew's
-own PyGObject build, and whether an equivalent introspection-data
-package exists for it, is still unconfirmed. Treat the first real run
-of this script, on real macOS hardware, as the actual verification
-step -- not this document, and not the CI workflow's own best-guess
-dependency list for that job.
+`build_macos.sh` is confirmed working on real macOS hardware -- it
+builds and the resulting `.app` runs correctly.

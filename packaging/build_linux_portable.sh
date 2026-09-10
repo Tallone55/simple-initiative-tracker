@@ -193,6 +193,28 @@ a.binaries = [
     and _os.path.basename(entry[0]) not in _dead_transitive_libs
 ]
 
+# The "icons": ["Adwaita"] hooksconfig setting above collects
+# share/icons/Adwaita/ wholesale -- confirmed directly, in PyInstaller's
+# own hook-gi.repository.Gtk.py source, that there's no finer-grained
+# knob than "which theme names", not "which subdirectories within a
+# theme". Adwaita/cursors/ alone is 11MB of this app's own ~14MB total
+# icon payload -- and it's mouse cursor bitmaps (arrow, hand,
+# text-select, and so on), which GTK4 apps resolve through the window
+# system's own configured cursor theme (X11's XCURSOR_THEME/
+# XCURSOR_PATH, or the Wayland compositor's own setting), not through
+# an application's own bundled icon theme the way widget/button icons
+# are. Nothing in this app -- or in GTK4's own generic widget chrome,
+# which does still need the rest of Adwaita for things like window
+# controls and checkboxes -- looks up a cursor shape by consulting a
+# bundled icons/*/cursors/ directory. Excluded by path prefix below,
+# the same way the GIO cluster above is excluded by name: a specific,
+# individually-reasoned rule, not a blanket "trim icons" pass, so it
+# stays easy to audit if it ever turns out to be wrong.
+a.datas = [
+    entry for entry in a.datas
+    if "icons/Adwaita/cursors/" not in entry[0]
+]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
